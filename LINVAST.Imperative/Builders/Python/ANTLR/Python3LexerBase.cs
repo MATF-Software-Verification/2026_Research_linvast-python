@@ -1,3 +1,5 @@
+#nullable disable
+namespace LINVAST.Imperative.Builders.Python {
 using Antlr4.Runtime;
 using System.Collections.Generic;
 using System;
@@ -171,4 +173,5 @@ public abstract class Python3LexerBase : Lexer {
         LastToken = null;
         base.Reset();
     }
+}
 }

@@ -1,3 +1,5 @@
+#nullable disable
+namespace LINVAST.Imperative.Builders.Python {
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -26,3 +28,4 @@ public abstract class Python3ParserBase : Parser
     }
 }
 
+}
