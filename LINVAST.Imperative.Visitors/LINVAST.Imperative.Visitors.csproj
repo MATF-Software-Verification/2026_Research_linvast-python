@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="../LINVAST.targets" />
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <Nullable>enable</Nullable>
+    <Authors>Ivan Ristović</Authors>
+    <Description>Language-invariant AST visitors.</Description>
+    <Copyright>Ivan Ristović</Copyright>
+    <PackageProjectUrl>https://github.com/LINVAST/LINVAST</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/LINVAST/LINVAST</RepositoryUrl>
+    <Version>1.1.1</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MathNet.Symbolics" Version="0.22.0" />
+    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LINVAST.Imperative\LINVAST.Imperative.csproj" />
+    <ProjectReference Include="..\LINVAST\LINVAST.csproj" />
+  </ItemGroup>
+
+</Project>

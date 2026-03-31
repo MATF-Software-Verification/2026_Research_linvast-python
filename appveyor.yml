@@ -1,0 +1,53 @@
+version: 2.0.0.{build}
+pull_requests:
+  do_not_increment_build_number: true
+branches:
+  only:
+  - master
+skip_tags: true
+max_jobs: 1
+image: Visual Studio 2019
+clone_depth: 1
+build_script:
+- ps: |-
+    # Version number
+    $BUILD_NUMBER = [int]$Env:APPVEYOR_BUILD_NUMBER
+    $BUILD_SUFFIX = "dev"
+
+    # Branch
+    $BRANCH = "$Env:APPVEYOR_REPO_BRANCH"
+    $Env:DOCFX_SOURCE_BRANCH_NAME = "$BRANCH"
+
+    # Output directory
+    $Env:ARTIFACT_DIR = ".\artifacts"
+    $dir = New-Item -type directory $env:ARTIFACT_DIR
+    $dir = $dir.FullName
+
+    # Verbosity
+    Write-Host "Build: $BUILD_NUMBER / Branch: $BRANCH"
+    Write-Host "Artifacts will be placed in: $dir"
+
+    Write-Host "Commencing build"
+    & .\rebuild-all.ps1 -ArtifactLocation "$dir" -Configuration "Release" -VersionSuffix "$BUILD_SUFFIX" -BuildNumber $BUILD_NUMBER 
+    
+dotnet_csproj:
+  patch: true
+  file: '**\*.csproj'
+  version: $(appveyor_build_version)
+  package_version: $(appveyor_build_version)
+  assembly_version: $(appveyor_build_version)
+  file_version: $(appveyor_build_version)
+  informational_version: $(appveyor_build_version)
+
+artifacts:
+- path: artifacts\*.nupkg
+
+test_script:
+  - cmd: dotnet restore ./LINVAST.Tests/LINVAST.Tests.csproj --verbosity m
+  - cmd: cd LINVAST.Tests
+  - cmd: dotnet test
+
+deploy:
+- provider: NuGet
+  api_key:
+    secure: FBNj2AVj/zdWXSelRKh9u5IceHXlvTEssLN+aOTjin41RIENm8s7l7gOMDi/RezW   # Encrypted NuGet ey in AppVeyor (Account -> Encrypt YAML)

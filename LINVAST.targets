@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+	
+	<PropertyGroup>
+		<VersionPrefix>1.0.0</VersionPrefix>
+		<LangVersion>9.0</LangVersion>
+		<Optimize>True</Optimize>
+		<DebugType>Portable</DebugType>
+	</PropertyGroup>
+	
+	<PropertyGroup>
+		<GeneratePackageOnBuild>False</GeneratePackageOnBuild>
+		<Authors>Ivan Ristović</Authors>
+		<Company>Ivan Ristović</Company>
+		<PackageProjectUrl>https://github.com/LINVAST/LINVAST</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/LINVAST/LINVAST</RepositoryUrl>
+		<RepositoryType>Git</RepositoryType>
+	</PropertyGroup>
+  
+	<PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+		<Optimize>False</Optimize>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(VersionSuffix)' != '' And '$(BuildNumber)' != ''">
+		<Version>$(VersionPrefix)-$(VersionSuffix)-$(BuildNumber)</Version>
+		<AssemblyVersion>$(VersionPrefix).$(BuildNumber)</AssemblyVersion>
+		<FileVersion>$(VersionPrefix).$(BuildNumber)</FileVersion>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(VersionSuffix)' != '' And '$(BuildNumber)' == ''">
+		<Version>$(VersionPrefix)-$(VersionSuffix)</Version>
+		<AssemblyVersion>$(VersionPrefix).0</AssemblyVersion>
+		<FileVersion>$(VersionPrefix).0</FileVersion>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(VersionSuffix)' == ''">
+		<Version>$(VersionPrefix)</Version>
+		<AssemblyVersion>$(VersionPrefix).0</AssemblyVersion>
+		<FileVersion>$(VersionPrefix).0</FileVersion>
+	</PropertyGroup>
+	
+</Project>
