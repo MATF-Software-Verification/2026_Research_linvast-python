@@ -45,7 +45,8 @@ namespace LINVAST.Imperative.Builders.Lua
                     ExprNode until = this.Visit(ctx.exp().Single()).As<ExprNode>();
                     var negUntil = new UnaryExprNode(until.Line, UnaryOpNode.FromSymbol(until.Line, "not"), until);
                     BlockStatNode repeatBody = this.Visit(ctx.block().Single()).As<BlockStatNode>();
-                    return new BlockStatNode(ctx.Start.Line, repeatBody, new WhileStatNode(ctx.Start.Line, negUntil, repeatBody));
+                    BlockStatNode loopBody = this.Visit(ctx.block().Single()).As<BlockStatNode>();
+                    return new BlockStatNode(ctx.Start.Line, repeatBody, new WhileStatNode(ctx.Start.Line, negUntil, loopBody));
                 case "if":
                     ExprNode[] conds = ctx.exp().Select(e => this.Visit(e).As<ExprNode>()).ToArray();
                     BlockStatNode[] blocks = ctx.block().Select(b => this.Visit(b).As<BlockStatNode>()).ToArray();
@@ -67,7 +68,7 @@ namespace LINVAST.Imperative.Builders.Lua
                             : new IfStatNode(conds[i].Line, conds[i], blocks[i], @else);
                     }
                 case "for":
-                    return new EmptyStatNode(ctx.Start.Line); // TODO
+                    return ctx.namelist() is null ? CreateNumericForNode() : CreateGenericForNode();
                 case "function":
                     IdNode fname = this.Visit(ctx.funcname()).As<IdNode>();
                     LambdaFuncExprNode lam = this.Visit(ctx.funcbody()).As<LambdaFuncExprNode>();
@@ -77,13 +78,30 @@ namespace LINVAST.Imperative.Builders.Lua
                     var fdeclSpecs = new DeclSpecsNode(ctx.Start.Line);
                     return new FuncNode(ctx.Start.Line, fdeclSpecs, fdef);
                 case "local":
-                    if (ctx.children[1].GetText().Equals("function", StringComparison.InvariantCultureIgnoreCase))
-                        return new EmptyStatNode(ctx.Start.Line);  // TODO
+                    if (ctx.children[1].GetText().Equals("function", StringComparison.InvariantCultureIgnoreCase)) {
+                        var localFname = new IdNode(ctx.Start.Line, ctx.NAME().GetText());
+                        LambdaFuncExprNode localLam = this.Visit(ctx.funcbody()).As<LambdaFuncExprNode>();
+                        FuncDeclNode localFdef = localLam.ParametersNode is null
+                            ? new FuncDeclNode(ctx.Start.Line, localFname, localLam.Definition)
+                            : new FuncDeclNode(ctx.Start.Line, localFname, localLam.ParametersNode, localLam.Definition);
+                        var localFdeclSpecs = new DeclSpecsNode(ctx.Start.Line, "local", "object");
+                        return new FuncNode(ctx.Start.Line, localFdeclSpecs, localFdef);
+                    }
+
                     IdListNode vars = this.Visit(ctx.namelist()).As<IdListNode>();
                     if (ctx.explist() is not null) {
-                        // TODO 'local' info is lost here
                         ExprListNode inits = this.Visit(ctx.explist()).As<ExprListNode>();
-                        return CreateAssignmentNode(ctx.Start.Line, new ExprListNode(vars.Line, vars.Identifiers), inits);
+                        if (inits.Expressions.Count() < vars.Identifiers.Count()) {
+                            int missingCount = vars.Identifiers.Count() - inits.Expressions.Count();
+                            IEnumerable<ExprNode> missing = Enumerable.Repeat<ExprNode>(new NullLitExprNode(ctx.Start.Line), missingCount);
+                            inits = new ExprListNode(ctx.Start.Line, inits.Expressions.Concat(missing));
+                        }
+
+                        IEnumerable<DeclNode> varDecls = vars.Identifiers
+                            .Zip(inits.Expressions, (identifier, initializer) => CreateDeclarator(identifier, initializer));
+                        var declSpecs = new DeclSpecsNode(ctx.Start.Line, "local", "object");
+                        var decls = new DeclListNode(ctx.Start.Line, varDecls);
+                        return new DeclStatNode(ctx.Start.Line, declSpecs, decls);
                     } else {
                         IEnumerable<VarDeclNode> varDecls = vars.Identifiers
                             .Select(v => new VarDeclNode(ctx.Start.Line, v))
@@ -97,6 +115,84 @@ namespace LINVAST.Imperative.Builders.Lua
                     throw new SyntaxErrorException("Invalid statement type.");
             }
 
+            ForStatNode CreateNumericForNode()
+            {
+                string iteratorName = ctx.NAME().GetText();
+                ExprNode start = this.Visit(ctx.exp(0)).As<ExprNode>();
+                ExprNode limit = this.Visit(ctx.exp(1)).As<ExprNode>();
+                ExprNode step = ctx.exp().Length > 2
+                    ? this.Visit(ctx.exp(2)).As<ExprNode>()
+                    : new LitExprNode(ctx.Start.Line, 1);
+
+                var init = new AssignExprNode(ctx.Start.Line, CreateIteratorId(), start);
+                string comparison = IsNegativeNumericLiteral(step) ? ">=" : "<=";
+                var cond = new RelExprNode(
+                    ctx.Start.Line,
+                    CreateIteratorId(),
+                    RelOpNode.FromSymbol(ctx.Start.Line, comparison),
+                    limit
+                );
+                var increment = new AssignExprNode(
+                    ctx.Start.Line,
+                    CreateIteratorId(),
+                    AssignOpNode.FromSymbol(ctx.Start.Line, "+="),
+                    step
+                );
+                BlockStatNode body = this.Visit(ctx.block().Single()).As<BlockStatNode>();
+                return new ForStatNode(ctx.Start.Line, init, cond, increment, body);
+
+                IdNode CreateIteratorId() => new(ctx.Start.Line, iteratorName);
+            }
+
+            ForStatNode CreateGenericForNode()
+            {
+                IdListNode vars = this.Visit(ctx.namelist()).As<IdListNode>();
+                ExprListNode iterators = this.Visit(ctx.explist()).As<ExprListNode>();
+                var init = new AssignExprNode(ctx.Start.Line, vars, iterators);
+                BlockStatNode body = this.Visit(ctx.block().Single()).As<BlockStatNode>();
+                return new ForStatNode(ctx.Start.Line, init, new LitExprNode(ctx.Start.Line, true), null, body);
+            }
+
+            static bool IsNegativeNumericLiteral(ExprNode expr)
+            {
+                if (expr is LitExprNode lit)
+                    return IsNegativeValue(lit.Value);
+
+                return expr is UnaryExprNode unary
+                    && unary.Operator.Symbol == "-"
+                    && unary.Operand is LitExprNode operand
+                    && IsPositiveValue(operand.Value);
+            }
+
+            static bool IsNegativeValue(object? value)
+                => value switch
+                {
+                    decimal v => v < 0,
+                    double v => v < 0,
+                    float v => v < 0,
+                    long v => v < 0,
+                    int v => v < 0,
+                    short v => v < 0,
+                    sbyte v => v < 0,
+                    _ => false,
+                };
+
+            static bool IsPositiveValue(object? value)
+                => value switch
+                {
+                    decimal v => v > 0,
+                    double v => v > 0,
+                    float v => v > 0,
+                    ulong v => v > 0,
+                    long v => v > 0,
+                    uint v => v > 0,
+                    int v => v > 0,
+                    ushort v => v > 0,
+                    short v => v > 0,
+                    byte v => v > 0,
+                    sbyte v => v > 0,
+                    _ => false,
+                };
 
             static ASTNode CreateAssignmentNode(int line, ExprListNode vars, ExprListNode initializers)
             {
@@ -130,23 +226,29 @@ namespace LINVAST.Imperative.Builders.Lua
 
         public override ASTNode VisitVar([NotNull] VarContext ctx)
         {
-            if (ctx.NAME() is not null) {
-                var id = new IdNode(ctx.Start.Line, ctx.NAME().GetText());
-                if (ctx.varSuffix() is not null && ctx.varSuffix().Any()) {
-                    // NOTE will require update once VisitVarSuffix is enhanced
-                    ExprNode index = this.Visit(ctx.varSuffix().First()).As<ExprNode>();
-                    return new ArrAccessExprNode(ctx.Start.Line, id, index);
+            ExprNode expr = ctx.NAME() is not null
+                ? new IdNode(ctx.Start.Line, ctx.NAME().GetText())
+                : this.Visit(ctx.exp()).As<ExprNode>();
+
+            foreach (VarSuffixContext suffixCtx in ctx.varSuffix()) {
+                foreach (NameAndArgsContext nameAndArgsCtx in suffixCtx.nameAndArgs())
+                    expr = this.CreateFunctionCall(ctx.Start.Line, expr, nameAndArgsCtx);
+
+                if (suffixCtx.exp() is not null) {
+                    ExprNode index = this.Visit(suffixCtx.exp()).As<ExprNode>();
+                    expr = new ArrAccessExprNode(suffixCtx.Start.Line, expr, index);
+                } else {
+                    expr = new IdNode(suffixCtx.Start.Line, $"{expr.GetText()}.{suffixCtx.NAME().GetText()}");
                 }
             }
-            return new IdNode(ctx.Start.Line, ctx.NAME().GetText());
+
+            return expr;
         }
 
         public override ASTNode VisitVarSuffix([NotNull] VarSuffixContext ctx)
         {
-            if (ctx.nameAndArgs()?.Any() ?? false)
-                throw new NotImplementedException("nameAndArgs*");
             if (ctx.NAME() is not null)
-                throw new NotImplementedException("Field access");
+                return new IdNode(ctx.Start.Line, ctx.NAME().GetText());
             return this.Visit(ctx.exp());
         }
 
@@ -155,18 +257,13 @@ namespace LINVAST.Imperative.Builders.Lua
 
         public override ASTNode VisitFunctioncall([NotNull] FunctioncallContext ctx)
         {
-            IdNode fname = this.Visit(ctx.varOrExp()).As<IdNode>();
-            if (ctx.nameAndArgs().Length > 1)
-                throw new NotImplementedException("Multiple nameAndArgs");
-            ExprListNode args = this.Visit(ctx.nameAndArgs().Single()).As<ExprListNode>();
-            return new FuncCallExprNode(ctx.Start.Line, fname, args);
+            ExprNode expr = this.Visit(ctx.varOrExp()).As<ExprNode>();
+            foreach (NameAndArgsContext nameAndArgsCtx in ctx.nameAndArgs())
+                expr = this.CreateFunctionCall(ctx.Start.Line, expr, nameAndArgsCtx);
+            return expr;
         }
 
         public override ASTNode VisitFuncname([NotNull] FuncnameContext ctx)
-        {
-            if (ctx.NAME().Length > 1)
-                throw new NotImplementedException("Function name*");
-            return new IdNode(ctx.Start.Line, ctx.NAME().Single().GetText());
-        }
+            => new IdNode(ctx.Start.Line, ctx.GetText());
     }
 }

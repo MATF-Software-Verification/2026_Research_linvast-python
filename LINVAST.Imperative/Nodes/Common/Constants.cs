@@ -12,6 +12,8 @@ namespace LINVAST.Imperative.Nodes.Common
             new(@"^(?<value>(0[0-7]*))(?<suffix>u?l{0,2})$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex _intHRegex =
             new(@"^(?<value>(0x[0-9a-f]+))(?<suffix>u?l{0,2})$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex _intBRegex =
+            new(@"^(?<value>(0b[01]+))(?<suffix>u?l{0,2})$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex _floatRegex =
             new(@"^(?<value>([0-9]*\.?[0-9]+([e][-+]?[0-9]+)?))(?<suffix>[flmd]?)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex _charRegex =
@@ -21,12 +23,14 @@ namespace LINVAST.Imperative.Nodes.Common
         public static bool TryConvert(string str, out object? literal, out string? suffix)
         {
             literal = suffix = null;
-            str = str.ToLowerInvariant();
+            str = str.Replace("_", string.Empty).ToLowerInvariant();
             if (string.Equals(str, "null", StringComparison.InvariantCultureIgnoreCase))
                 return true;
             if (TryConvertToInt(_intRegex, str, 10, out literal, out suffix))
                 return true;
             if (TryConvertToInt(_intHRegex, str, 16, out literal, out suffix))
+                return true;
+            if (TryConvertToInt(_intBRegex, str, 2, out literal, out suffix))
                 return true;
             if (TryConvertToInt(_intORegex, str, 8, out literal, out suffix))
                 return true;
@@ -49,6 +53,8 @@ namespace LINVAST.Imperative.Nodes.Common
                 return false;
 
             string value = m.Groups["value"].Value;
+            if (@base == 2 && value.StartsWith("0b", StringComparison.Ordinal))
+                value = value[2..];
             suffix = m.Groups["suffix"]?.Value;
             if (string.IsNullOrWhiteSpace(suffix))
                 suffix = null;  // Out parameter

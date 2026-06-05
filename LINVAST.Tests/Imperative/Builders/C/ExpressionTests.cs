@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Linq;
 using LINVAST.Imperative.Builders.C;
 using LINVAST.Imperative.Nodes;
+using LINVAST.Imperative.Visitors;
 using LINVAST.Nodes;
 using LINVAST.Tests.Imperative.Builders.Common;
 using NUnit.Framework;
@@ -72,6 +74,25 @@ namespace LINVAST.Tests.Imperative.Builders.C
             this.AssertExpressionValue("1 << (1 + 1 * 2) >> 3", 1);
             this.AssertExpressionValue("2.3 + 4 / 2", 4.3);
             this.AssertExpressionValue("3.3 + (4.1 - 1.1) * 2", 9.3);
+        }
+
+        [Test]
+        public void CommaAndCastExpressionTest()
+        {
+            ExprListNode comma = new CASTBuilder()
+                .BuildFromSource("1, 2, 3", p => p.expression())
+                .As<ExprListNode>();
+
+            Assert.That(comma.Expressions.Select(ConstantExpressionEvaluator.Evaluate), Is.EqualTo(new object[] { 1, 2, 3 }));
+            this.AssertExpressionValue("(int)(1 + 2)", 3);
+        }
+
+        [Test]
+        public void ConditionalExpressionEdgeCasesTest()
+        {
+            this.AssertExpressionValue("1 < 2 ? 3 : 4", 3);
+            this.AssertExpressionValue("1 > 2 ? 3 : 4", 4);
+            this.AssertExpressionValue("(1 == 1) ? (2 + 3) : (4 + 5)", 5);
         }
 
         [Test]
@@ -188,6 +209,63 @@ namespace LINVAST.Tests.Imperative.Builders.C
             this.AssertFunctionCallExpression("g(((1 << 2) + 4) >> 3)", "g", ((1 << 2) + 4) >> 3);
             this.AssertFunctionCallExpression("g(1.1 > 1.0 && 1.0 > 1.02)", "g", false);
             this.AssertFunctionCallExpression("h(1.01 > 1.0 || 1.0 > 1.02)", "h", true);
+
+            FuncCallExprNode complexCall = this.AssertExpression("f[0](3)").As<FuncCallExprNode>();
+            Assert.That(complexCall.Identifier, Is.EqualTo("f[0]"));
+            Assert.That(complexCall.Arguments!.Expressions.Select(ConstantExpressionEvaluator.Evaluate), Is.EqualTo(new object[] { 3 }));
+        }
+
+        [Test]
+        public void AssignmentAndNestedArrayAccessExpressionTests()
+        {
+            AssignExprNode assignment = this.AssertExpression("x += 3").As<AssignExprNode>();
+            Assert.That(assignment.LeftOperand.As<IdNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(assignment.Operator.Symbol, Is.EqualTo("+="));
+            Assert.That(ConstantExpressionEvaluator.Evaluate(assignment.RightOperand), Is.EqualTo(3));
+
+            ArrAccessExprNode access = this.AssertExpression("matrix[1][2]").As<ArrAccessExprNode>();
+            Assert.That(ConstantExpressionEvaluator.Evaluate(access.IndexExpression), Is.EqualTo(2));
+            ArrAccessExprNode inner = access.Array.As<ArrAccessExprNode>();
+            Assert.That(inner.Array.As<IdNode>().Identifier, Is.EqualTo("matrix"));
+            Assert.That(ConstantExpressionEvaluator.Evaluate(inner.IndexExpression), Is.EqualTo(1));
+        }
+
+        [Test]
+        public void MemberAccessExpressionTests()
+        {
+            Assert.That(this.AssertExpression("p.x").As<IdNode>().Identifier, Is.EqualTo("p.x"));
+            Assert.That(this.AssertExpression("p->x").As<IdNode>().Identifier, Is.EqualTo("p->x"));
+        }
+
+        [Test]
+        public void ExtendedUnaryExpressionTests()
+        {
+            FuncCallExprNode sizeofType = this.AssertExpression("sizeof(int)").As<FuncCallExprNode>();
+            Assert.That(sizeofType.Identifier, Is.EqualTo("sizeof"));
+            Assert.That(sizeofType.Arguments!.Expressions.Single().As<IdNode>().Identifier, Is.EqualTo("int"));
+
+            FuncCallExprNode sizeofExpr = this.AssertExpression("sizeof x").As<FuncCallExprNode>();
+            Assert.That(sizeofExpr.Identifier, Is.EqualTo("sizeof"));
+            Assert.That(sizeofExpr.Arguments!.Expressions.Single().As<IdNode>().Identifier, Is.EqualTo("x"));
+
+            FuncCallExprNode alignofType = this.AssertExpression("_Alignof(int)").As<FuncCallExprNode>();
+            Assert.That(alignofType.Identifier, Is.EqualTo("_Alignof"));
+            Assert.That(alignofType.Arguments!.Expressions.Single().As<IdNode>().Identifier, Is.EqualTo("int"));
+
+            Assert.That(this.AssertExpression("&&done").As<IdNode>().Identifier, Is.EqualTo("&&done"));
+        }
+
+        [Test]
+        public void CompoundLiteralExpressionTest()
+        {
+            ConsExprNode literal = this.AssertExpression("(int[]){1, 2}").As<ConsExprNode>();
+
+            Assert.That(literal.Identifier, Is.EqualTo("int[]"));
+            Assert.That(literal.Arguments!.Expressions.Select(ConstantExpressionEvaluator.Evaluate), Is.EqualTo(new object[] { 1, 2 }));
+
+            ConsExprNode computed = this.AssertExpression("(int[]){1 + 1, 2 << 1}").As<ConsExprNode>();
+            Assert.That(computed.Identifier, Is.EqualTo("int[]"));
+            Assert.That(computed.Arguments!.Expressions.Select(ConstantExpressionEvaluator.Evaluate), Is.EqualTo(new object[] { 2, 4 }));
         }
 
 

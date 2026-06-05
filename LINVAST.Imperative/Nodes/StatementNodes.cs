@@ -114,6 +114,23 @@ namespace LINVAST.Imperative.Nodes
             => $"if {this.Condition.GetText()} {this.ThenStat.GetText()} {(this.ElseStat is null ? "" : $"else {this.ElseStat.GetText()}")}";
     }
 
+    public sealed class SwitchStatNode : ComplexStatNode
+    {
+        [JsonIgnore]
+        public ExprNode Condition => this.Children[0].As<ExprNode>();
+
+        [JsonIgnore]
+        public BlockStatNode Body => this.Children[1].As<BlockStatNode>();
+
+
+        public SwitchStatNode(int line, ExprNode cond, BlockStatNode body)
+            : base(line, cond, body) { }
+
+
+        public override string GetText()
+            => $"switch {this.Condition.GetText()} {this.Body.GetText()}";
+    }
+
     public sealed class JumpStatNode : SimpleStatNode
     {
         public JumpStatType Type { get; set; }

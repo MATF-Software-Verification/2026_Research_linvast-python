@@ -21,13 +21,17 @@ namespace LINVAST.Imperative.Builders.Go
             // antlr grammar is not exactly consistent with official spec when it comes to expressions, esp. unary ones
             // https://go.dev/ref/spec#Expression
             if (context.unary_op is not null) {
+                ExprNode expr = this.Visit(context.expression()[0]).As<ExprNode>();
+                if (context.unary_op.Text == "<-") {
+                    return this.MarkerExpression(context.Start.Line, "__linvast_recv", expr);
+                }
+
                 UnaryOpNode op;
                 if (context.unary_op.Text == "^") { // go uses unary ^ as bitwise not (binary ^ is still a XOR)
                     op = new UnaryOpNode(context.Start.Line, "^", UnaryOperations.BitwiseNotPrimitive);
                 } else {
                     op = UnaryOpNode.FromSymbol(context.Start.Line, context.unary_op.Text);
                 }
-                ExprNode expr = this.Visit(context.expression()[0]).As<ExprNode>();
                 return new UnaryExprNode(context.Start.Line, op, expr);
             }
 
@@ -39,6 +43,10 @@ namespace LINVAST.Imperative.Builders.Go
             ExprNode rhs = this.Visit(context.expression()[1]).As<ExprNode>();
             
             if (context.mul_op is not null) {
+                if (context.mul_op.Text == "&^") {
+                    return this.MarkerExpression(context.Start.Line, "__linvast_bit_clear", lhs, rhs);
+                }
+
                 ArithmOpNode op;
                 if (context.mul_op.Text == "&") {
                     op = ArithmOpNode.FromBitwiseSymbol(context.Start.Line, context.mul_op.Text);
@@ -107,11 +115,21 @@ namespace LINVAST.Imperative.Builders.Go
             }
 
             if (context.slice_() is not null) {
-                throw new NotImplementedException("Slice expressions are not supported");
+                ExprNode array = this.Visit(context.primaryExpr()).As<ExprNode>();
+                ExprNode slice = this.Visit(context.slice_()).As<ExprNode>();
+                return new FuncCallExprNode(
+                    context.Start.Line,
+                    new IdNode(context.Start.Line, "__linvast_slice"),
+                    new ExprListNode(context.Start.Line, array, slice));
             }
 
             if (context.typeAssertion() is not null) {
-                throw new NotImplementedException("Type assertion expressions are not supported");
+                ExprNode asserted = this.Visit(context.primaryExpr()).As<ExprNode>();
+                ExprNode type = new IdNode(context.Start.Line, this.Visit(context.typeAssertion()).As<TypeNameNode>().GetText());
+                return new FuncCallExprNode(
+                    context.Start.Line,
+                    new IdNode(context.Start.Line, "__linvast_type_assert"),
+                    new ExprListNode(context.Start.Line, asserted, type));
             }
 
             if (context.arguments() is not null) {
@@ -127,11 +145,19 @@ namespace LINVAST.Imperative.Builders.Go
         public override ASTNode VisitArguments(GoParser.ArgumentsContext context)
         {
             if (context.ELLIPSIS() is not null) {
-                throw new NotImplementedException("Variadic arguments in expressions are not supported");
+                ExprListNode args = context.expressionList() is null
+                    ? new ExprListNode(context.Start.Line)
+                    : this.Visit(context.expressionList()).As<ExprListNode>();
+                return new ExprListNode(context.Start.Line, args.Expressions.Concat(new ExprNode[] { new IdNode(context.Start.Line, "...") }));
             }
 
             if (context.nonNamedType() is not null) {
-                throw new NotImplementedException("Non-named types in func call expressions are not supported");
+                ExprNode type = new IdNode(context.Start.Line, context.nonNamedType().GetText());
+                if (context.expressionList() is null)
+                    return new ExprListNode(context.Start.Line, type);
+
+                ExprListNode expressions = this.Visit(context.expressionList()).As<ExprListNode>();
+                return new ExprListNode(context.Start.Line, new[] { type }.Concat(expressions.Expressions));
             }
 
             if (context.expressionList() is null) {
@@ -142,14 +168,13 @@ namespace LINVAST.Imperative.Builders.Go
         }
         
         public override ASTNode VisitMethodExpr(GoParser.MethodExprContext context) =>
-            // this can't really fit into LitExprNode, due to TypeCode limitations
-            throw new NotImplementedException("Method expressions are unsupported");
+            new IdNode(context.Start.Line, context.GetText());
 
         public override ASTNode VisitReceiverType(GoParser.ReceiverTypeContext context) => 
-            throw new NotImplementedException("Method expressions (receiver type) are unsupported");
+            new TypeNameNode(context.Start.Line, context.GetText());
 
         public override ASTNode VisitLiteral(GoParser.LiteralContext context) =>
-            this.Visit(context.children.Single()).As<LitExprNode>();
+            this.Visit(context.children.Single());
 
         public override ASTNode VisitOperand(GoParser.OperandContext context)
         {
@@ -167,6 +192,10 @@ namespace LINVAST.Imperative.Builders.Go
         
         public override ASTNode VisitBasicLit(GoParser.BasicLitContext context)
         {
+            if (context.NIL_LIT() is not null) {
+                return new NullLitExprNode(context.Start.Line);
+            }
+
             if (context.FLOAT_LIT() is not null) {
                 return new LitExprNode(context.Start.Line, double.Parse(context.FLOAT_LIT().GetText()));
             }
@@ -182,28 +211,47 @@ namespace LINVAST.Imperative.Builders.Go
             throw new NotSupportedException("Unsupported basic literal: " + context);
         }
 
-        public override ASTNode VisitCompositeLit(GoParser.CompositeLitContext context) => 
-            // todo compound literal support?
-            throw new NotImplementedException("Composite literals are not supported");
+        public override ASTNode VisitCompositeLit(GoParser.CompositeLitContext context)
+        {
+            string typeName = context.literalType().GetText();
+            ExprListNode values = this.Visit(context.literalValue()).As<ExprListNode>();
+            return values.Expressions.Any()
+                ? new ConsExprNode(context.Start.Line, new IdNode(context.Start.Line, typeName), values)
+                : new ConsExprNode(context.Start.Line, new IdNode(context.Start.Line, typeName));
+        }
 
         public override ASTNode VisitElementList(GoParser.ElementListContext context) => 
-            throw new NotImplementedException("Composite literals (element list) are not supported");
+            new ExprListNode(context.Start.Line, context.keyedElement().Select(k => this.Visit(k).As<ExprNode>()));
 
-        public override ASTNode VisitKeyedElement(GoParser.KeyedElementContext context) => 
-            throw new NotImplementedException("Composite literals (keyed element) are not supported");
+        public override ASTNode VisitKeyedElement(GoParser.KeyedElementContext context)
+        {
+            ExprNode element = this.Visit(context.element()).As<ExprNode>();
+            if (context.key() is null)
+                return element;
+
+            ExprNode key = this.Visit(context.key()).As<ExprNode>();
+            return new DictEntryNode(context.Start.Line, new IdNode(context.Start.Line, key.GetText()), element);
+        }
 
         public override ASTNode VisitKey(GoParser.KeyContext context) => 
-            throw new NotImplementedException("Composite literals (key) are not supported");
+            this.Visit(context.children.Single());
 
         public override ASTNode VisitLiteralType(GoParser.LiteralTypeContext context) => 
-            throw new NotImplementedException("Composite literals (literal type) are not supported");
+            new TypeNameNode(context.Start.Line, context.GetText());
 
         public override ASTNode VisitLiteralValue(GoParser.LiteralValueContext context) =>
-            throw new NotImplementedException("Composite literals (literal value) are not supported");
+            context.elementList() is null
+                ? new ExprListNode(context.Start.Line)
+                : this.Visit(context.elementList()).As<ExprListNode>();
         
-        public override ASTNode VisitFunctionLit(GoParser.FunctionLitContext context) => 
-            // todo function literals; LitExprNode doesn't really work, as there's no TypeCode for function
-            throw new NotImplementedException("Function literals are not supported");
+        public override ASTNode VisitFunctionLit(GoParser.FunctionLitContext context)
+        {
+            FuncNode signature = this.Visit(context.signature()).As<FuncNode>();
+            BlockStatNode body = this.Visit(context.block()).As<BlockStatNode>();
+            return signature.ParametersNode is null
+                ? new LambdaFuncExprNode(context.Start.Line, body)
+                : new LambdaFuncExprNode(context.Start.Line, signature.ParametersNode, body);
+        }
 
         public override ASTNode VisitElement(GoParser.ElementContext context) =>
             this.Visit(context.children.Single()).As<ExprNode>();
@@ -211,10 +259,10 @@ namespace LINVAST.Imperative.Builders.Go
         public override ASTNode VisitElementType(GoParser.ElementTypeContext context) => this.Visit(context.type_());
 
         public override ASTNode VisitQualifiedIdent(GoParser.QualifiedIdentContext context) =>
-            new IdNode(context.Start.Line, context.GetText());
+            new TypeNameNode(context.Start.Line, context.GetText());
 
         public override ASTNode VisitTypeAssertion(GoParser.TypeAssertionContext context) =>
-            throw new NotImplementedException("Type assertions are not supported");
+            this.Visit(context.type_()).As<TypeNameNode>();
 
         public override ASTNode VisitInteger(GoParser.IntegerContext context)
         {
@@ -231,8 +279,7 @@ namespace LINVAST.Imperative.Builders.Go
             }
 
             if (context.IMAGINARY_LIT() is not null) {
-                // .net5 doesn't have Complex.Parse function
-                throw new NotImplementedException("Support for complex literals is not implemented");
+                return new LitExprNode(context.Start.Line, context.IMAGINARY_LIT().GetText());
             }
 
             if (context.DECIMAL_LIT() is not null) {
@@ -256,14 +303,18 @@ namespace LINVAST.Imperative.Builders.Go
 
         public override ASTNode VisitString_(GoParser.String_Context context)
         {
-            if (context.GetText()[0] != '"' || context.GetText().Last() != '"') {
+            string text = context.GetText();
+            if (text[0] == '`' && text.Last() == '`')
+                return new LitExprNode(context.Start.Line, text[1..^1]);
+
+            if (text[0] != '"' || text.Last() != '"') {
                 throw new Exceptions.SyntaxErrorException("String literal without quotes");
             }
             return new LitExprNode(context.Start.Line, 
-                context.GetText()[1..(context.GetText().Length-1)]);
+                text[1..(text.Length-1)]);
         } 
 
         public override ASTNode VisitSlice_(GoParser.Slice_Context context) =>
-            throw new NotImplementedException("Slices are unsupported");
+            new IdNode(context.Start.Line, context.GetText());
     }
 }

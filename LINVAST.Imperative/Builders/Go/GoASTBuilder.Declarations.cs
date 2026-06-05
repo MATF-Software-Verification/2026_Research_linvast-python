@@ -57,33 +57,17 @@ namespace LINVAST.Imperative.Builders.Go
         public override ASTNode VisitVarSpec(GoParser.VarSpecContext context)
         {
             IdListNode idListNodes = this.Visit(context.identifierList()).As<IdListNode>();
-            DeclListNode d;
-            IEnumerable<VarDeclNode> idExprList;
             DeclSpecsNode type;
 
-            if (context.type_() is not null) {
-                type = new DeclSpecsNode(context.Start.Line, context.type_().GetText());
-            } else {
-                if (context.expressionList().children.Count > 1) {
-                    throw new NotImplementedException("Not implemented.");
-                }
-                ExprNode t = this.Visit(context.expressionList().children.First()).As<ExprNode>();
-                TypeCode exprType;
-                if (t is not LitExprNode) {
-                    throw new NotImplementedException("Not implemented.");
-                } 
-                
-                exprType = t.As<LitExprNode>().TypeCode;
-                type = new DeclSpecsNode(context.Start.Line, exprType.ToString());
-            }
+            type = context.type_() is not null
+                ? new DeclSpecsNode(context.Start.Line, this.Visit(context.type_()).As<TypeNameNode>())
+                : new DeclSpecsNode(context.Start.Line, InferExpressionListTypeName(context.expressionList()));
+            ExprListNode? exprList = null;
             if (context.expressionList() is not null) {
-                ExprListNode exprList = this.Visit(context.expressionList()).As<ExprListNode>();
-                idExprList = idListNodes.Identifiers.Zip(exprList.Expressions, (i, e) => new VarDeclNode(context.Start.Line, i, e));
-            } else {
-                idExprList = idListNodes.Identifiers.Select(i => new VarDeclNode(context.Start.Line, i));
+                exprList = this.Visit(context.expressionList()).As<ExprListNode>();
             }
 
-            d = new DeclListNode(context.Start.Line, idExprList);
+            DeclListNode d = new DeclListNode(context.Start.Line, this.BuildVarDeclarators(context.Start.Line, idListNodes.Identifiers, exprList));
             return new DeclStatNode(context.Start.Line, type, d);
         }
 
@@ -93,20 +77,9 @@ namespace LINVAST.Imperative.Builders.Go
             ExprListNode exprList = this.Visit(context.expressionList()).As<ExprListNode>();
             DeclSpecsNode type;
 
-            if (exprList.Children.Count > 1) {
-                throw new NotImplementedException("Not implemented.");
-            }
-
-            ExprNode t = this.Visit(context.expressionList().children.First()).As<ExprNode>();
-            TypeCode exprType;
-            if (t is not LitExprNode) {
-                throw new NotImplementedException("Not implemented.");
-            } 
-                
-            exprType = t.As<LitExprNode>().TypeCode;
-            type = new DeclSpecsNode(context.Start.Line, exprType.ToString());
+            type = new DeclSpecsNode(context.Start.Line, InferExpressionListTypeName(context.expressionList()));
             
-            IEnumerable<VarDeclNode> idExprList = idListNodes.Identifiers.Zip(exprList.Expressions, (i, e) => new VarDeclNode(context.Start.Line, i, e));
+            IEnumerable<VarDeclNode> idExprList = this.BuildVarDeclarators(context.Start.Line, idListNodes.Identifiers, exprList);
             DeclListNode declList = new DeclListNode(context.Start.Line, idExprList);
             return new DeclStatNode(context.Start.Line, type,declList);
         }
@@ -114,36 +87,18 @@ namespace LINVAST.Imperative.Builders.Go
         public override ASTNode VisitConstSpec(GoParser.ConstSpecContext context)
         {
             IdListNode idListNodes = this.Visit(context.identifierList()).As<IdListNode>();
-            DeclListNode d;
-            IEnumerable<VarDeclNode> idExprList;
             DeclSpecsNode type;
 
-            if (context.type_() is not null) {
-                type = new DeclSpecsNode(context.Start.Line, "const", context.type_().GetText());
-            } else {
-                if (context.expressionList() is not null) {
-                    if (context.expressionList().children.Count > 1) {
-                        throw new NotImplementedException("Not implemented.");
-                    }
-                    ExprNode t = this.Visit(context.expressionList().children.First()).As<ExprNode>();
-                    TypeCode exprType;
-                    if (t is not LitExprNode) {
-                        throw new NotImplementedException("Not implemented.");
-                    } 
-                
-                    exprType = t.As<LitExprNode>().TypeCode;
-                    type = new DeclSpecsNode(context.Start.Line, "const", exprType.ToString());   
-                } else 
-                    throw new NotImplementedException("Not implemented.");
+            type = context.type_() is not null
+                ? new DeclSpecsNode(context.Start.Line, "const", this.Visit(context.type_()).As<TypeNameNode>())
+                : new DeclSpecsNode(context.Start.Line, "const", context.expressionList() is null ? "object" : InferExpressionListTypeName(context.expressionList()));
+
+            ExprListNode? exprList = null;
+            if (context.expressionList() is not null) {
+                exprList = this.Visit(context.expressionList()).As<ExprListNode>();
             }
 
-            if (context.expressionList() is not null) {
-                ExprListNode exprList = this.Visit(context.expressionList()).As<ExprListNode>();
-                idExprList = idListNodes.Identifiers.Zip(exprList.Expressions, (i, e) => new VarDeclNode(context.Start.Line, i, e));
-            } else 
-                idExprList = idListNodes.Identifiers.Select(i => new VarDeclNode(context.Start.Line, i));
-
-            d = new DeclListNode(context.Start.Line, idExprList);
+            DeclListNode d = new DeclListNode(context.Start.Line, this.BuildVarDeclarators(context.Start.Line, idListNodes.Identifiers, exprList));
             return new DeclStatNode(context.Start.Line, type, d);
         }
 
@@ -156,8 +111,60 @@ namespace LINVAST.Imperative.Builders.Go
             return new BlockStatNode(context.Start.Line, context.constSpec().Select(cs => this.Visit(cs).As<DeclStatNode>()));
         }
         
-        public override ASTNode VisitTypeDecl(GoParser.TypeDeclContext context) => base.VisitTypeDecl(context);
+        public override ASTNode VisitTypeDecl(GoParser.TypeDeclContext context)
+        {
+            if (context.typeSpec().Count() == 1)
+                return this.Visit(context.typeSpec().First());
 
-        public override ASTNode VisitTypeSpec(GoParser.TypeSpecContext context) => base.VisitTypeSpec(context);
+            return new BlockStatNode(context.Start.Line, context.typeSpec().Select(this.Visit));
+        }
+
+        public override ASTNode VisitTypeSpec(GoParser.TypeSpecContext context)
+        {
+            var identifier = new IdNode(context.Start.Line, context.IDENTIFIER().GetText());
+            TypeNameNode typeName = this.Visit(context.type_()).As<TypeNameNode>();
+            string modifier = context.ASSIGN() is null ? "type" : "type alias";
+            var declSpecs = new DeclSpecsNode(context.Start.Line, modifier, typeName);
+            var declList = new DeclListNode(context.Start.Line, new VarDeclNode(context.Start.Line, identifier));
+            return new DeclStatNode(context.Start.Line, declSpecs, declList);
+        }
+
+        private string InferExpressionListTypeName(GoParser.ExpressionListContext context)
+        {
+            ExprNode[] expressions = context.expression().Select(e => this.Visit(e).As<ExprNode>()).ToArray();
+            if (expressions.Length == 1 && expressions[0] is LitExprNode literal)
+                return literal.TypeCode.ToString();
+
+            return "object";
+        }
+
+        private IEnumerable<VarDeclNode> BuildVarDeclarators(int line, IEnumerable<IdNode> identifiers, ExprListNode? exprList)
+        {
+            IdNode[] ids = identifiers.ToArray();
+            ExprNode[] expressions = exprList?.Expressions.ToArray() ?? Array.Empty<ExprNode>();
+
+            if (expressions.Length == 0)
+                return ids.Select(id => new VarDeclNode(line, id));
+
+            if (expressions.Length == ids.Length)
+                return ids.Zip(expressions, (id, expr) => new VarDeclNode(line, id, expr));
+
+            if (expressions.Length == 1 && ids.Length > 1) {
+                return ids.Select((id, index) =>
+                    new VarDeclNode(
+                        line,
+                        id,
+                        this.MarkerExpression(
+                            line,
+                            "__linvast_multi_value",
+                            new IdNode(line, expressions[0].GetText()),
+                            new LitExprNode(line, index))));
+            }
+
+            return ids.Select((id, index) =>
+                index < expressions.Length
+                    ? new VarDeclNode(line, id, expressions[index])
+                    : new VarDeclNode(line, id));
+        }
     }
 }

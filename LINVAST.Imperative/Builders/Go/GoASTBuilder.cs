@@ -41,15 +41,12 @@ namespace LINVAST.Imperative.Builders.Go
 
         public override ASTNode VisitSourceFile(GoParser.SourceFileContext ctx)
         {
-            if (ctx.packageClause() is not null) {
-                // TODO package declaration
-            }
-            
+            var package = this.Visit(ctx.packageClause());
             var imports = ctx.importDecl().Select(this.Visit);
             var functions = ctx.functionDecl().Select(this.Visit);
             var methods = ctx.methodDecl().Select(this.Visit);
             var declarations = ctx.declaration().Select(this.Visit);
-            return new SourceNode(imports.Concat(functions).Concat(methods).Concat(declarations));
+            return new SourceNode(new[] { package }.Concat(imports).Concat(functions).Concat(methods).Concat(declarations));
         }
     }
 }

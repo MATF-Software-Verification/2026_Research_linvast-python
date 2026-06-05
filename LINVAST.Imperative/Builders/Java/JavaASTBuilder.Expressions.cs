@@ -17,7 +17,7 @@ namespace LINVAST.Imperative.Builders.Java
                 return this.Visit(ctx.primary()).As<ExprNode>();
             }
 
-            if (ctx.methodCall() is not null) {
+            if (ctx.methodCall() is not null && ctx.DOT() is null) {
                 return this.Visit(ctx.methodCall()).As<FuncCallExprNode>();
             }
 
@@ -34,6 +34,61 @@ namespace LINVAST.Imperative.Builders.Java
 
             if (ctx.NEW() is not null && ctx.creator() is not null) {
                 return this.Visit(ctx.creator()).As<ExprNode>();
+            }
+
+            if (ctx.DOT() is not null && ctx.expression().Length == 1) {
+                ExprNode target = this.Visit(ctx.expression(0)).As<ExprNode>();
+                string targetName = target switch
+                {
+                    IdNode id => id.Identifier,
+                    FuncCallExprNode { Arguments: null, TemplateArguments: null } call => call.Identifier,
+                    _ => target.GetText(),
+                };
+
+                if (ctx.IDENTIFIER() is not null) {
+                    return new IdNode(ctx.Start.Line, $"{targetName}.{ctx.IDENTIFIER().GetText()}");
+                }
+
+                if (ctx.methodCall() is not null) {
+                    FuncCallExprNode call = this.Visit(ctx.methodCall()).As<FuncCallExprNode>();
+                    var name = new IdNode(ctx.Start.Line, $"{targetName}.{call.Identifier}");
+                    return call.Arguments is null
+                        ? new FuncCallExprNode(ctx.Start.Line, name)
+                        : new FuncCallExprNode(ctx.Start.Line, name, call.Arguments);
+                }
+
+                if (ctx.THIS() is not null) {
+                    return new IdNode(ctx.Start.Line, $"{targetName}.{ctx.THIS().GetText()}");
+                }
+
+                if (ctx.SUPER() is not null && ctx.superSuffix() is not null) {
+                    ASTNode suffix = this.Visit(ctx.superSuffix());
+                    if (suffix is FuncCallExprNode callSuffix) {
+                        var name = new IdNode(ctx.Start.Line, $"{targetName}.super.{callSuffix.Identifier}");
+                        return callSuffix.Arguments is null
+                            ? new FuncCallExprNode(ctx.Start.Line, name)
+                            : new FuncCallExprNode(ctx.Start.Line, name, callSuffix.Arguments);
+                    }
+                }
+
+                if (ctx.explicitGenericInvocation() is not null) {
+                    FuncCallExprNode call = this.Visit(ctx.explicitGenericInvocation()).As<FuncCallExprNode>();
+                    var name = new IdNode(ctx.Start.Line, $"{targetName}.{call.Identifier}");
+                    return call.Arguments is null
+                        ? new FuncCallExprNode(ctx.Start.Line, name, call.TemplateArguments ?? new TypeNameListNode(ctx.Start.Line))
+                        : new FuncCallExprNode(ctx.Start.Line, name, call.TemplateArguments ?? new TypeNameListNode(ctx.Start.Line), call.Arguments);
+                }
+            }
+
+            if (ctx.LBRACK() is not null && ctx.expression().Length == 2 && ctx.RBRACK() is not null) {
+                return new ArrAccessExprNode(
+                    ctx.Start.Line,
+                    this.Visit(ctx.expression(0)).As<ExprNode>(),
+                    this.Visit(ctx.expression(1)).As<ExprNode>());
+            }
+
+            if (ctx.LPAREN() is not null && ctx.typeType() is not null && ctx.expression().Length == 1) {
+                return this.Visit(ctx.expression(0)).As<ExprNode>();
             }
 
             if (ctx.ADD() is not null) {
@@ -121,15 +176,15 @@ namespace LINVAST.Imperative.Builders.Java
             }
 
             if (ctx.BITAND() is not null && ctx.expression().Length == 2) {
-                return new LogicExprNode(ctx.Start.Line, this.Visit(ctx.expression(0)).As<ExprNode>(), BinaryLogicOpNode.FromSymbol(ctx.Start.Line, ctx.BITAND().GetText()), this.Visit(ctx.expression(1)).As<ExprNode>());
+                return new ArithmExprNode(ctx.Start.Line, this.Visit(ctx.expression(0)).As<ExprNode>(), ArithmOpNode.FromBitwiseSymbol(ctx.Start.Line, ctx.BITAND().GetText()), this.Visit(ctx.expression(1)).As<ExprNode>());
             }
 
             if (ctx.CARET() is not null && ctx.expression().Length == 2) {
-                return new LogicExprNode(ctx.Start.Line, this.Visit(ctx.expression(0)).As<ExprNode>(), BinaryLogicOpNode.FromSymbol(ctx.Start.Line, ctx.CARET().GetText()), this.Visit(ctx.expression(1)).As<ExprNode>());
+                return new ArithmExprNode(ctx.Start.Line, this.Visit(ctx.expression(0)).As<ExprNode>(), ArithmOpNode.FromBitwiseSymbol(ctx.Start.Line, ctx.CARET().GetText()), this.Visit(ctx.expression(1)).As<ExprNode>());
             }
 
             if (ctx.BITOR() is not null && ctx.expression().Length == 2) {
-                return new LogicExprNode(ctx.Start.Line, this.Visit(ctx.expression(0)).As<ExprNode>(), BinaryLogicOpNode.FromSymbol(ctx.Start.Line, ctx.BITOR().GetText()), this.Visit(ctx.expression(1)).As<ExprNode>());
+                return new ArithmExprNode(ctx.Start.Line, this.Visit(ctx.expression(0)).As<ExprNode>(), ArithmOpNode.FromBitwiseSymbol(ctx.Start.Line, ctx.BITOR().GetText()), this.Visit(ctx.expression(1)).As<ExprNode>());
             }
 
             if (ctx.AND() is not null && ctx.expression().Length == 2) {
@@ -190,10 +245,6 @@ namespace LINVAST.Imperative.Builders.Java
 
             if (ctx.expression().Any() && ctx.INSTANCEOF() is not null && ctx.typeType() is not null) {
                 return new RelExprNode(ctx.Start.Line, this.Visit(ctx.expression(0)).As<ExprNode>(), RelOpNode.FromSymbol(ctx.Start.Line, ctx.INSTANCEOF().GetText()), this.Visit(ctx.typeType()).As<ExprNode>());
-            }
-
-            if (ctx.LBRACK() is not null && ctx.expression().Any() && ctx.RBRACK() is not null) {
-                return this.Visit(ctx.expression(0)).As<ExprNode>();
             }
 
             if (ctx.NEW() is not null && ctx.innerCreator() is not null) {
@@ -324,7 +375,7 @@ namespace LINVAST.Imperative.Builders.Java
             }
 
             if (ctx.block() is not null) {
-                throw new NotImplementedException("Implementation pending (depends on implementation of statements)");
+                return this.Visit(ctx.block()).As<BlockStatNode>();
             }
 
             throw new SyntaxErrorException("Unknown construct");
@@ -416,8 +467,8 @@ namespace LINVAST.Imperative.Builders.Java
                 return LitExprNode.FromString(ctx.Start.Line, ctx.OCT_LITERAL().GetText());
             }
 
-            if (ctx.OCT_LITERAL() is not null) {
-                return LitExprNode.FromString(ctx.Start.Line, ctx.OCT_LITERAL().GetText());
+            if (ctx.BINARY_LITERAL() is not null) {
+                return LitExprNode.FromString(ctx.Start.Line, ctx.BINARY_LITERAL().GetText());
             }
 
             throw new SyntaxErrorException("Unknown construct");

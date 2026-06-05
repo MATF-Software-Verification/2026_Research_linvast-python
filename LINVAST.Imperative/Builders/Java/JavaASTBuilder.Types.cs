@@ -17,11 +17,16 @@ namespace LINVAST.Imperative.Builders.Java
             string? modifiers = "";
             if (ctx.classOrInterfaceModifier() is not null) {
                 ctxStartLine = ctx.classOrInterfaceModifier().First().Start.Line;
-                modifiers = string.Join(" ", ctx.classOrInterfaceModifier().Select(c => c.GetText()));
+                modifiers = string.Join(" ", ctx.classOrInterfaceModifier()
+                    .Select(c => this.ProcessClassOrInterfaceModifier(c))
+                    .Where(mod => !string.IsNullOrWhiteSpace(mod)));
             }
 
-            if (ctx.annotationTypeDeclaration() is not null)
-                throw new NotImplementedException("annotations");
+            if (ctx.annotationTypeDeclaration() is not null) {
+                TypeDeclNode annotationDecl = this.Visit(ctx.annotationTypeDeclaration()).As<TypeDeclNode>();
+                int declSpecsLine = ctxStartLine;
+                return new InterfaceNode(ctx.Start.Line, new DeclSpecsNode(declSpecsLine, modifiers, annotationDecl.Identifier), annotationDecl);
+            }
 
             if (ctx.classDeclaration() is not null) {
                 TypeDeclNode? classDecl = this.Visit(ctx.classDeclaration()).As<TypeDeclNode>();
@@ -47,20 +52,20 @@ namespace LINVAST.Imperative.Builders.Java
         public override ASTNode VisitClassOrInterfaceModifier([NotNull] ClassOrInterfaceModifierContext ctx)
         {
             if (ctx.annotation() is not null)
-                throw new NotImplementedException("annotations");
+                return this.Visit(ctx.annotation());
 
             return new DeclSpecsNode(ctx.Start.Line, ctx.children.First().GetText());
         }
 
         public override ASTNode VisitTypeType([NotNull] TypeTypeContext ctx)
         {
-            if (ctx.annotation().Any())
-                throw new NotImplementedException("annotations");
+            TypeNameNode type = ctx.primitiveType() is not null
+                ? this.Visit(ctx.primitiveType()).As<TypeNameNode>()
+                : this.Visit(ctx.classOrInterfaceType()).As<TypeNameNode>();
 
-            if (ctx.primitiveType() is not null)
-                return this.Visit(ctx.primitiveType());
-
-            return this.Visit(ctx.classOrInterfaceType());
+            return ctx.LBRACK().Any()
+                ? new TypeNameNode(type.Line, $"{type.TypeName}{string.Concat(Enumerable.Repeat("[]", ctx.LBRACK().Length))}", type.TemplateArguments)
+                : type;
         }
 
 
@@ -78,9 +83,6 @@ namespace LINVAST.Imperative.Builders.Java
 
         public override ASTNode VisitTypeParameter([NotNull] TypeParameterContext ctx)
         {
-            if (ctx.annotation().Any())
-                throw new NotImplementedException("annotations");
-
             TypeNameListNode baseList = ctx.typeBound() is not null ? this.Visit(ctx.typeBound()).As<TypeNameListNode>() : new TypeNameListNode(ctx.Start.Line);
             return new TypeNameNode(ctx.Start.Line, ctx.IDENTIFIER().GetText(), baseList.Types);
         }
@@ -97,9 +99,6 @@ namespace LINVAST.Imperative.Builders.Java
 
         public override ASTNode VisitClassType([NotNull] ClassTypeContext ctx)
         {
-            if (ctx.annotation().Any())
-                throw new NotImplementedException("annotations");
-
             int ctxStartLine = ctx.Start.Line;
 
             TypeNameListNode templlist = new(ctxStartLine), baselist = new(ctxStartLine);
@@ -141,16 +140,13 @@ namespace LINVAST.Imperative.Builders.Java
         public override ASTNode VisitNonWildcardTypeArgumentsOrDiamond([NotNull] NonWildcardTypeArgumentsOrDiamondContext ctx)
         {
             if (ctx.nonWildcardTypeArguments() is null)
-                throw new NotImplementedException("<>");
+                return new TypeNameListNode(ctx.Start.Line);
 
             return this.Visit(ctx.nonWildcardTypeArguments());
         }
 
         public override ASTNode VisitTypeArgument([NotNull] TypeArgumentContext ctx)
         {
-            if (ctx.annotation().Any())
-                throw new NotImplementedException("annotations");
-
             if (ctx.EXTENDS() is not null || ctx.SUPER() is not null) {
                 //TODO EXTENDS/SUPER
                 return this.Visit(ctx.typeType());

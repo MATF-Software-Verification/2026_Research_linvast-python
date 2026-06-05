@@ -12,6 +12,23 @@ LINVAST is a set of libraries that provide a common language-invariant AST API f
 - `Go` (partial support, pending development)
 - `Lua` (partial support, pending development)
 
+## Development scripts
+
+The Linux build entrypoints require Bash and the .NET 10 SDK.
+
+```bash
+./build
+./test
+./release
+```
+
+Use `--configuration Debug|Release` on any script. `release` writes NuGet packages to `artifacts/` by default and accepts the same prerelease version inputs as the old rebuild scripts:
+
+```bash
+./release --version-suffix dev --build-number 42
+./release --artifacts ./artifacts --configuration Release
+```
+
 ## Motivation and project description
 > *There are many programming languages out there and, even though their syntax might be different, they often derive from or use certain universal programming concepts. We also call that a _way of writing code_ or, more commonly, a programming paradigm. The motivation for LINVAST came from the inability to find a shared API for every programming language that is a part of a procedural paradigm. LINVAST aims to create a common abstraction for imperative (but also procedural, OO, script and, through a few concepts, functional) programming paradigm so that it is possible to view many different programming languages on the same level of abstraction.*
 >

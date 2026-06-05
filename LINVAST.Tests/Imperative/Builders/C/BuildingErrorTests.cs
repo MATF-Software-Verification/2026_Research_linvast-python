@@ -20,7 +20,6 @@ namespace LINVAST.Tests.Imperative.Builders.C
         [Test]
         public void InvalidDeclarationTests()
         {
-            this.AssertThrows<NotImplementedException>("something;");
             this.AssertThrows<SyntaxErrorException>("void f { };");
             this.AssertThrows<SyntaxErrorException>("void ();");
             this.AssertThrows<SyntaxErrorException>("int f(int, int x);");

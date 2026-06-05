@@ -14,16 +14,21 @@ namespace LINVAST.Imperative.Builders.C
     {
         public override ASTNode VisitExpression([NotNull] ExpressionContext ctx)
         {
-            if (ctx.expression() is not null)
-                throw new NotImplementedException("expression list");
+            ExprNode expr = this.Visit(ctx.assignmentExpression()).As<ExprNode>();
+            if (ctx.expression() is not null) {
+                ExprNode left = this.Visit(ctx.expression()).As<ExprNode>();
+                return left is ExprListNode list
+                    ? new ExprListNode(ctx.Start.Line, list.Expressions.Concat(new[] { expr }))
+                    : new ExprListNode(ctx.Start.Line, left, expr);
+            }
 
-            return this.Visit(ctx.assignmentExpression());
+            return expr;
         }
 
         public override ASTNode VisitAssignmentExpression([NotNull] AssignmentExpressionContext ctx)
         {
             if (ctx.DigitSequence() is not null)
-                throw new NotImplementedException("digit sequence");
+                return LitExprNode.FromString(ctx.Start.Line, ctx.DigitSequence().GetText());
 
             if (ctx.conditionalExpression() is not null)
                 return this.Visit(ctx.conditionalExpression());
@@ -46,6 +51,9 @@ namespace LINVAST.Imperative.Builders.C
             ExprNode elseExpr = this.Visit(ctx.conditionalExpression()).As<ExprNode>();
             return new CondExprNode(ctx.Start.Line, expr, thenExpr, elseExpr);
         }
+
+        public override ASTNode VisitConstantExpression([NotNull] ConstantExpressionContext ctx)
+            => this.Visit(ctx.conditionalExpression());
 
         public override ASTNode VisitLogicalOrExpression([NotNull] LogicalOrExpressionContext ctx)
         {
@@ -170,9 +178,12 @@ namespace LINVAST.Imperative.Builders.C
 
         public override ASTNode VisitCastExpression([NotNull] CastExpressionContext ctx)
         {
-            if (ctx.unaryExpression() is null)
-                throw new NotImplementedException("cast operator");
-            return this.Visit(ctx.unaryExpression());
+            if (ctx.DigitSequence() is not null)
+                return LitExprNode.FromString(ctx.Start.Line, ctx.DigitSequence().GetText());
+
+            return ctx.unaryExpression() is not null
+                ? this.Visit(ctx.unaryExpression())
+                : this.Visit(ctx.castExpression());
         }
 
         public override ASTNode VisitUnaryExpression([NotNull] UnaryExpressionContext ctx)
@@ -182,9 +193,21 @@ namespace LINVAST.Imperative.Builders.C
 
             ExprNode expr;
             if (ctx.unaryExpression() is null) {
+                if (ctx.typeName() is not null) {
+                    string callee = ctx.children.First().GetText();
+                    var typeName = new IdNode(ctx.typeName().Start.Line, ctx.typeName().GetText());
+                    return new FuncCallExprNode(ctx.Start.Line, new IdNode(ctx.Start.Line, callee), new ExprListNode(ctx.Start.Line, typeName));
+                }
+
+                if (ctx.Identifier() is not null)
+                    return new IdNode(ctx.Start.Line, $"&&{ctx.Identifier().GetText()}");
+
                 if (ctx.castExpression() is null)
-                    throw new NotImplementedException("extended unary expressions (sizeof, alignof, gcc extensions");
+                    throw new NotImplementedException("extended unary expressions");
                 expr = this.Visit(ctx.castExpression()).As<ExprNode>();
+            } else if (ctx.GetToken(Sizeof, 0) is not null) {
+                expr = this.Visit(ctx.unaryExpression()).As<ExprNode>();
+                return new FuncCallExprNode(ctx.Start.Line, new IdNode(ctx.Start.Line, "sizeof"), new ExprListNode(ctx.Start.Line, expr));
             } else {
                 expr = this.Visit(ctx.unaryExpression()).As<ExprNode>();
             }
@@ -197,21 +220,28 @@ namespace LINVAST.Imperative.Builders.C
             if (ctx.primaryExpression() is not null)
                 return this.Visit(ctx.primaryExpression());
 
-            if (ctx.typeName() is not null || ctx.initializerList() is not null)
-                throw new NotImplementedException("initializers");
+            if (ctx.typeName() is not null) {
+                var typeName = new IdNode(ctx.typeName().Start.Line, ctx.typeName().GetText());
+                if (ctx.initializerList() is not null) {
+                    ArrInitExprNode initializers = this.Visit(ctx.initializerList()).As<ArrInitExprNode>();
+                    return new ConsExprNode(ctx.Start.Line, typeName, new ExprListNode(initializers.Line, initializers.Initializers));
+                }
+
+                return new ConsExprNode(ctx.Start.Line, typeName);
+            }
+
+            if (ctx.initializerList() is not null)
+                return this.Visit(ctx.initializerList()).As<ExprNode>();
 
             ExprNode expr = this.Visit(ctx.postfixExpression()).As<ExprNode>();
             switch (ctx.children[1].GetText()) {
                 case "(":
-                    if (expr is IdNode fname) {
-                        if (ctx.argumentExpressionList() is not null) {
-                            ExprListNode? args = this.Visit(ctx.argumentExpressionList()).As<ExprListNode>();
-                            return new FuncCallExprNode(ctx.Start.Line, fname, args);
-                        } else {
-                            return new FuncCallExprNode(ctx.Start.Line, fname);
-                        }
+                    IdNode fname = expr is IdNode id ? id : new IdNode(expr.Line, expr.GetText());
+                    if (ctx.argumentExpressionList() is not null) {
+                        ExprListNode? args = this.Visit(ctx.argumentExpressionList()).As<ExprListNode>();
+                        return new FuncCallExprNode(ctx.Start.Line, fname, args);
                     } else {
-                        throw new NotImplementedException("complex function calls");
+                        return new FuncCallExprNode(ctx.Start.Line, fname);
                     }
                 case "[":
                     ExprNode indexExpr = this.Visit(ctx.expression()).As<ExprNode>();
@@ -221,9 +251,8 @@ namespace LINVAST.Imperative.Builders.C
                 case "--":
                     return new DecExprNode(ctx.Start.Line, expr);
                 case "->":
-                    throw new NotImplementedException("->");
                 case ".":
-                    throw new NotImplementedException("struct field access");
+                    return new IdNode(ctx.Start.Line, $"{expr.GetText()}{ctx.children[1].GetText()}{ctx.Identifier().GetText()}");
                 default:
                     throw new SyntaxErrorException("Unknown postfix expression", ctx.Start.Line, ctx.Start.Column);
             }
@@ -247,8 +276,46 @@ namespace LINVAST.Imperative.Builders.C
             if (ctx.StringLiteral() is not null)
                 return new LitExprNode(ctx.Start.Line, string.Join("", ctx.StringLiteral().Select(t => t.GetText()[1..^1])));
 
-            throw new NotImplementedException("__*");
+            if (ctx.genericSelection() is not null)
+                return this.Visit(ctx.genericSelection());
+
+            if (ctx.unaryExpression() is not null) {
+                ExprNode value = this.Visit(ctx.unaryExpression()).As<ExprNode>();
+                ExprNode type = new IdNode(ctx.typeName().Start.Line, ctx.typeName().GetText());
+                string builtin = ctx.Start.Text ?? "__builtin_va_arg";
+                ExprListNode args = builtin == "__builtin_offsetof"
+                    ? new ExprListNode(ctx.Start.Line, type, value)
+                    : new ExprListNode(ctx.Start.Line, value, type);
+                return new FuncCallExprNode(ctx.Start.Line, new IdNode(ctx.Start.Line, builtin), args);
+            }
+
+            if (ctx.typeName() is not null) {
+                ExprNode type = new IdNode(ctx.typeName().Start.Line, ctx.typeName().GetText());
+                return new FuncCallExprNode(ctx.Start.Line, new IdNode(ctx.Start.Line, "__builtin_offsetof"), new ExprListNode(ctx.Start.Line, type));
+            }
+
+            if (ctx.compoundStatement() is not null)
+                return new IdNode(ctx.Start.Line, this.Visit(ctx.compoundStatement()).GetText());
+
+            throw new NotImplementedException("primary expression");
         }
+
+        public override ASTNode VisitGenericSelection([NotNull] GenericSelectionContext ctx)
+            => this.Visit(ctx.genericAssocList());
+
+        public override ASTNode VisitGenericAssocList([NotNull] GenericAssocListContext ctx)
+        {
+            ExprNode expr = this.Visit(ctx.genericAssociation()).As<ExprNode>();
+
+            if (ctx.genericAssocList() is null)
+                return expr;
+
+            ExprNode listExpr = this.Visit(ctx.genericAssocList()).As<ExprNode>();
+            return IsDefaultGenericAssociation(ctx.genericAssociation()) ? expr : listExpr;
+        }
+
+        public override ASTNode VisitGenericAssociation([NotNull] GenericAssociationContext ctx)
+            => this.Visit(ctx.assignmentExpression());
 
         public override ASTNode VisitArgumentExpressionList([NotNull] ArgumentExpressionListContext ctx)
         {
@@ -262,5 +329,8 @@ namespace LINVAST.Imperative.Builders.C
             arg.Parent = args;
             return new ExprListNode(ctx.Start.Line, args.Expressions.Concat(new[] { arg }));
         }
+
+        private static bool IsDefaultGenericAssociation([NotNull] GenericAssociationContext ctx)
+            => ctx.typeName() is null;
     }
 }

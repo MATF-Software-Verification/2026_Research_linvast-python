@@ -128,6 +128,11 @@ namespace LINVAST.Imperative.Builders.Go
                     new FuncDeclNode(context.Start.Line, funcName));
             }
 
+            if (signature.ParametersNode is not null && body is not null) {
+                return new FuncNode(context.Start.Line, declSpecs,
+                    new FuncDeclNode(context.Start.Line, funcName, signature.ParametersNode, body));
+            }
+
             if (signature.ParametersNode is not null) {
                 return new FuncNode(context.Start.Line, declSpecs,
                     new FuncDeclNode(context.Start.Line, funcName, signature.ParametersNode));
@@ -138,8 +143,7 @@ namespace LINVAST.Imperative.Builders.Go
                     new FuncDeclNode(context.Start.Line, funcName, body));
             }
 
-            return new FuncNode(context.Start.Line, declSpecs,
-                new FuncDeclNode(context.Start.Line, funcName, signature.ParametersNode, body));
+            throw new Exception("Unreachable code was reached!");
         }
 
         public override ASTNode VisitReceiver(GoParser.ReceiverContext context)

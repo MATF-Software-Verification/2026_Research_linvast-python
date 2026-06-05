@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+source "${SCRIPT_DIR}/scripts/common"
+
+usage() {
+    cat <<'USAGE'
+Usage: ./test [options] [-- <dotnet test args>]
+
+Options:
+  -c, --configuration <Debug|Release>  Test configuration. Default: Debug.
+      --no-restore                     Skip dotnet restore.
+      --no-build                       Skip build before running tests.
+      --filter <expression>            Run tests matching a dotnet test filter.
+  -h, --help                           Show this help text.
+USAGE
+}
+
+configuration="Debug"
+no_restore=0
+no_build=0
+test_filter=""
+extra_args=()
+
+while (($#)); do
+    case "$1" in
+        -c|--configuration)
+            shift
+            linvast_require_value "--configuration" "${1-}"
+            configuration="$1"
+            ;;
+        --no-restore)
+            no_restore=1
+            ;;
+        --no-build)
+            no_build=1
+            ;;
+        --filter)
+            shift
+            linvast_require_value "--filter" "${1-}"
+            test_filter="$1"
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            extra_args+=("$@")
+            break
+            ;;
+        *)
+            linvast_die "unknown option '$1'"
+            ;;
+    esac
+    shift
+done
+
+linvast_validate_configuration "$configuration"
+
+cd "$LINVAST_REPO_ROOT"
+linvast_prepare_nuget_config
+trap linvast_restore_nuget_config EXIT
+
+if [[ "$no_restore" -eq 0 ]]; then
+    dotnet restore "$LINVAST_TEST_PROJECT" -v minimal -m:1
+fi
+
+test_args=(dotnet test "$LINVAST_TEST_PROJECT" -v minimal -c "$configuration" -m:1 --no-restore)
+
+if [[ "$no_build" -eq 1 ]]; then
+    test_args+=(--no-build)
+fi
+
+if [[ -n "$test_filter" ]]; then
+    test_args+=(--filter "$test_filter")
+fi
+
+test_args+=("${extra_args[@]}")
+
+"${test_args[@]}"
