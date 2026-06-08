@@ -640,8 +640,10 @@ namespace LINVAST.Imperative.Builders.Java
                 StatNode body = this.Visit(ctx.statement().Single()).As<StatNode>();
                 ForControlContext forControl = ctx.forControl();
                 if (forControl.enhancedForControl() is not null) {
-                    ExprNode foreachExpr = this.EnhancedForExpression(forControl.enhancedForControl());
-                    return new ForStatNode(ctx.Start.Line, foreachExpr, null, null, body);
+                    EnhancedForControlContext enhancedFor = forControl.enhancedForControl();
+                    DeclStatNode iteratorDeclaration = this.EnhancedForIteratorDeclaration(enhancedFor);
+                    ExprNode iterable = this.Visit(enhancedFor.expression()).As<ExprNode>();
+                    return new ForeachStatNode(ctx.Start.Line, iteratorDeclaration, iterable, body);
                 }
 
                 ExprNode? init = forControl.forInit() is not null
@@ -772,17 +774,39 @@ namespace LINVAST.Imperative.Builders.Java
             return expressions.Length == 1 ? expressions[0] : list;
         }
 
-        private ExprNode EnhancedForExpression([NotNull] EnhancedForControlContext ctx)
+        private DeclStatNode EnhancedForIteratorDeclaration([NotNull] EnhancedForControlContext ctx)
         {
-            TypeNameNode type = this.Visit(ctx.typeType()).As<TypeNameNode>();
-            IdNode identifier = this.Visit(ctx.variableDeclaratorId()).As<IdNode>();
-            ExprNode iterable = this.Visit(ctx.expression()).As<ExprNode>();
-            return this.MarkerExpression(
-                ctx.Start.Line,
-                "__linvast_foreach",
-                new IdNode(type.Line, type.GetText()),
-                identifier,
-                iterable);
+            string modifiers = "";
+            int? declSpecsStartLine = null;
+            IEnumerable<TagNode> tags = Enumerable.Empty<TagNode>();
+            if (ctx.variableModifier() is { } varModifierCtxList && varModifierCtxList.Any()) {
+                tags = varModifierCtxList
+                    .Where(modCtx => modCtx.annotation() is not null)
+                    .Select(modCtx => this.Visit(modCtx.annotation()).As<TagNode>());
+                modifiers = string.Join(" ",
+                    varModifierCtxList
+                        .Select(modCtx => this.ProcessVariableModifier(modCtx))
+                        .Where(mod => !string.IsNullOrWhiteSpace(mod)));
+                declSpecsStartLine = varModifierCtxList.First().Start.Line;
+            }
+
+            TypeNameNode typeName = this.Visit(ctx.typeType()).As<TypeNameNode>();
+            declSpecsStartLine ??= typeName.Line;
+            var declSpecs = new DeclSpecsNode(declSpecsStartLine ?? ctx.Start.Line, modifiers, typeName);
+            DeclNode declarator = this.EnhancedForIteratorDeclarator(ctx.variableDeclaratorId());
+            var declList = new DeclListNode(declarator.Line, declarator);
+
+            return tags.Any()
+                ? new DeclStatNode(ctx.Start.Line, tags, declSpecs, declList)
+                : new DeclStatNode(ctx.Start.Line, declSpecs, declList);
+        }
+
+        private DeclNode EnhancedForIteratorDeclarator([NotNull] VariableDeclaratorIdContext ctx)
+        {
+            var identifier = new IdNode(ctx.Start.Line, ctx.IDENTIFIER().GetText());
+            return ctx.LBRACK().Any()
+                ? new ArrDeclNode(ctx.Start.Line, identifier)
+                : new VarDeclNode(ctx.Start.Line, identifier);
         }
 
         private ExprNode? StatementExpression(ASTNode? node)

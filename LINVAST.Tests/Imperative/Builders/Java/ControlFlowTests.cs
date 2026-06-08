@@ -70,11 +70,15 @@ namespace LINVAST.Tests.Imperative.Builders.Java
         [Test]
         public void EnhancedForStatementTests()
         {
-            ForStatNode loop = this.GenerateAST("for (String s : names) { break; }").As<ForStatNode>();
+            ForeachStatNode loop = this.GenerateAST("for (String s : names) { break; }").As<ForeachStatNode>();
 
-            Assert.That(loop.InitExpr, Is.InstanceOf<FuncCallExprNode>());
-            Assert.That(loop.InitExpr!.As<FuncCallExprNode>().Identifier, Is.EqualTo("__linvast_foreach"));
+            Assert.That(loop.IteratorType.TypeName, Is.EqualTo("String"));
+            Assert.That(loop.Iterator.Identifier, Is.EqualTo("s"));
+            Assert.That(loop.Iterable.As<IdNode>().Identifier, Is.EqualTo("names"));
             Assert.That(loop.Statement.As<BlockStatNode>().Children.Single(), Is.InstanceOf<JumpStatNode>());
+
+            ForeachStatNode finalLoop = this.GenerateAST("for (final String s : names) { continue; }").As<ForeachStatNode>();
+            Assert.That(finalLoop.IteratorSpecifiers.Modifiers.ToString(), Is.EqualTo("const"));
         }
 
         [Test]
