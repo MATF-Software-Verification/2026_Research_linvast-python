@@ -42,7 +42,9 @@ namespace LINVAST.Tests.Imperative.Builders.Go
                 .As<FuncNode>();
 
             Assert.That(method.Identifier, Is.EqualTo("Point.Move"));
-            Assert.That(method.Parameters, Has.Exactly(1).Items);
+            Assert.That(method.Parameters, Has.Exactly(2).Items);
+            Assert.That(method.Parameters!.Select(p => (p.Specifiers.TypeName, p.Declarator.Identifier)),
+                Is.EqualTo(new[] { ("Point", "p"), ("int", "dx") }));
             Assert.That(method.Definition, Is.Not.Null);
             Assert.That(method.Definition!.Children.Single(), Is.InstanceOf<JumpStatNode>());
         }

@@ -127,7 +127,15 @@ namespace LINVAST.Imperative.Builders.Go
                 return this.Visit(context.type_()).As<TypeNameNode>();
 
             FuncParamsNode parameters = this.Visit(context.parameters()).As<FuncParamsNode>();
-            return new TypeNameNode(context.Start.Line, $"({string.Join(", ", parameters.Parameters.Select(p => p.Specifiers.TypeName))})");
+            return new TypeNameNode(context.Start.Line, $"({string.Join(", ", parameters.Parameters.Select(ResultParameterText))})");
+        }
+
+        private static string ResultParameterText(FuncParamNode parameter)
+        {
+            string identifier = parameter.Declarator.Identifier;
+            return identifier == "."
+                ? parameter.Specifiers.TypeName
+                : $"{parameter.Specifiers.TypeName} {identifier}";
         }
     }
 }
