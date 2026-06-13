@@ -22,6 +22,7 @@ namespace LINVAST.Imperative.Builders.Python
             lexer.AddErrorListener(new ThrowExceptionErrorListener());
             ITokenStream tokens = new CommonTokenStream(lexer);
             var parser = new Python3Parser(tokens);
+            parser.BuildParseTree = true;
             parser.RemoveErrorListeners();
             parser.AddErrorListener(new ThrowExceptionErrorListener());
             return parser;
