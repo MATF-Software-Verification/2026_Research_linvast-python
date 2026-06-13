@@ -1,6 +1,10 @@
 using System;
+using System.Linq;
+using Antlr4.Runtime;
+using Antlr4.Runtime.Tree;
 using LINVAST.Builders;
 using LINVAST.Imperative.Nodes;
+using LINVAST.Imperative.Nodes.Common;
 using LINVAST.Nodes;
 
 namespace LINVAST.Imperative.Builders.Python
@@ -9,23 +13,71 @@ namespace LINVAST.Imperative.Builders.Python
     {
         // compound_stmt: if_stmt | while_stmt | for_stmt | try_stmt | with_stmt | funcdef | classdef | decorated | async_stmt | match_stmt
         public override ASTNode VisitCompound_stmt(Python3Parser.Compound_stmtContext ctx) =>
-            throw new NotImplementedException("compound_stmt");
+            this.Visit(ctx.children.Single(c => c is ParserRuleContext));
 
         // block: simple_stmts | NEWLINE INDENT stmt+ DEDENT
-        public override ASTNode VisitBlock(Python3Parser.BlockContext ctx) =>
-            throw new NotImplementedException("block");
+        public override ASTNode VisitBlock(Python3Parser.BlockContext ctx)
+        {
+            if (ctx.simple_stmts() is not null)
+                return this.Visit(ctx.simple_stmts());
+
+            if (ctx.stmt() is null || ctx.stmt().Length == 0)
+                return new BlockStatNode(ctx.Start.Line);
+
+            var stmts = ctx.stmt().Select(this.Visit).ToArray();
+            return new BlockStatNode(ctx.Start.Line, stmts);
+        }
 
         // if_stmt: 'if' test ':' block ('elif' test ':' block)* ('else' ':' block)?
-        public override ASTNode VisitIf_stmt(Python3Parser.If_stmtContext ctx) =>
-            throw new NotImplementedException("if_stmt");
+        public override ASTNode VisitIf_stmt(Python3Parser.If_stmtContext ctx)
+        {
+            Python3Parser.TestContext[] tests = ctx.test();
+            Python3Parser.BlockContext[] blocks = ctx.block();
+
+            StatNode? elseStmt = null;
+            int elifCount = tests.Length - 1;
+            if (ctx.ELSE() is not null)
+                elseStmt = this.Visit(blocks[tests.Length]).As<StatNode>();
+
+            for (int i = elifCount; i >= 1; i--) {
+                ExprNode cond = this.Visit(tests[i]).As<ExprNode>();
+                StatNode body = this.Visit(blocks[i]).As<StatNode>();
+                elseStmt = elseStmt is null
+                    ? new IfStatNode(tests[i].Start.Line, cond, body)
+                    : new IfStatNode(tests[i].Start.Line, cond, body, elseStmt);
+            }
+
+            ExprNode ifCond = this.Visit(tests[0]).As<ExprNode>();
+            StatNode ifBody = this.Visit(blocks[0]).As<StatNode>();
+            return elseStmt is null
+                ? new IfStatNode(ctx.Start.Line, ifCond, ifBody)
+                : new IfStatNode(ctx.Start.Line, ifCond, ifBody, elseStmt);
+        }
 
         // while_stmt: 'while' test ':' block ('else' ':' block)?
-        public override ASTNode VisitWhile_stmt(Python3Parser.While_stmtContext ctx) =>
-            throw new NotImplementedException("while_stmt");
+        public override ASTNode VisitWhile_stmt(Python3Parser.While_stmtContext ctx)
+        {
+            ExprNode cond = this.Visit(ctx.test()).As<ExprNode>();
+            BlockStatNode body = this.Visit(ctx.block(0)).As<BlockStatNode>();
+
+            if (ctx.ELSE() is not null)
+                body = this.AppendLoopElse(body, this.Visit(ctx.block(1)).As<StatNode>(), ctx.Start.Line);
+
+            return new WhileStatNode(ctx.Start.Line, cond, body);
+        }
 
         // for_stmt: 'for' exprlist 'in' testlist ':' block ('else' ':' block)?
-        public override ASTNode VisitFor_stmt(Python3Parser.For_stmtContext ctx) =>
-            throw new NotImplementedException("for_stmt");
+        public override ASTNode VisitFor_stmt(Python3Parser.For_stmtContext ctx)
+        {
+            DeclarationNode loopVar = this.CreateForLoopDeclaration(ctx);
+            ExprNode iterable = this.Visit(ctx.testlist()).As<ExprNode>();
+            BlockStatNode body = this.Visit(ctx.block(0)).As<BlockStatNode>();
+
+            if (ctx.ELSE() is not null)
+                body = this.AppendLoopElse(body, this.Visit(ctx.block(1)).As<StatNode>(), ctx.Start.Line);
+
+            return new ForStatNode(ctx.Start.Line, loopVar, iterable, null, body);
+        }
 
         // try_stmt: 'try' ':' block ((except_clause ':' block)+ ... | 'finally' ':' block)
         public override ASTNode VisitTry_stmt(Python3Parser.Try_stmtContext ctx) =>
@@ -49,35 +101,54 @@ namespace LINVAST.Imperative.Builders.Python
 
         // flow_stmt: break_stmt | continue_stmt | return_stmt | raise_stmt | yield_stmt
         public override ASTNode VisitFlow_stmt(Python3Parser.Flow_stmtContext ctx) =>
-            throw new NotImplementedException("flow_stmt");
+            this.Visit(ctx.children.Single(c => c is ParserRuleContext));
 
         // pass_stmt: 'pass'
         public override ASTNode VisitPass_stmt(Python3Parser.Pass_stmtContext ctx) =>
-            throw new NotImplementedException("pass_stmt");
+            new EmptyStatNode(ctx.Start.Line);
 
         // break_stmt: 'break'
         public override ASTNode VisitBreak_stmt(Python3Parser.Break_stmtContext ctx) =>
-            throw new NotImplementedException("break_stmt");
+            new JumpStatNode(ctx.Start.Line, JumpStatType.Break);
 
         // continue_stmt: 'continue'
         public override ASTNode VisitContinue_stmt(Python3Parser.Continue_stmtContext ctx) =>
-            throw new NotImplementedException("continue_stmt");
+            new JumpStatNode(ctx.Start.Line, JumpStatType.Continue);
 
         // return_stmt: 'return' testlist?
-        public override ASTNode VisitReturn_stmt(Python3Parser.Return_stmtContext ctx) =>
-            throw new NotImplementedException("return_stmt");
+        public override ASTNode VisitReturn_stmt(Python3Parser.Return_stmtContext ctx)
+        {
+            if (ctx.testlist() is null)
+                return new JumpStatNode(ctx.Start.Line, (ExprNode?)null);
+
+            ExprNode expr = this.Visit(ctx.testlist()).As<ExprNode>();
+            return new JumpStatNode(ctx.Start.Line, expr);
+        }
 
         // raise_stmt: 'raise' (test ('from' test)?)?
-        public override ASTNode VisitRaise_stmt(Python3Parser.Raise_stmtContext ctx) =>
-            throw new NotImplementedException("raise_stmt");
+        public override ASTNode VisitRaise_stmt(Python3Parser.Raise_stmtContext ctx)
+        {
+            if (ctx.test() is null || ctx.test().Length == 0)
+                return new ThrowStatNode(ctx.Start.Line, new NullLitExprNode(ctx.Start.Line));
+
+            ExprNode exc = this.Visit(ctx.test(0)).As<ExprNode>();
+            return new ThrowStatNode(ctx.Start.Line, exc);
+        }
 
         // yield_stmt: yield_expr
         public override ASTNode VisitYield_stmt(Python3Parser.Yield_stmtContext ctx) =>
             throw new NotImplementedException("yield_stmt");
 
         // assert_stmt: 'assert' test (',' test)?
-        public override ASTNode VisitAssert_stmt(Python3Parser.Assert_stmtContext ctx) =>
-            throw new NotImplementedException("assert_stmt");
+        public override ASTNode VisitAssert_stmt(Python3Parser.Assert_stmtContext ctx)
+        {
+            var args = ctx.test().Select(t => this.Visit(t).As<ExprNode>());
+            var assertCall = new FuncCallExprNode(
+                ctx.Start.Line,
+                new IdNode(ctx.Start.Line, "assert"),
+                new ExprListNode(ctx.Start.Line, args));
+            return new ExprStatNode(ctx.Start.Line, assertCall);
+        }
 
         // match_stmt: 'match' subject_expr ':' NEWLINE INDENT case_block+ DEDENT
         public override ASTNode VisitMatch_stmt(Python3Parser.Match_stmtContext ctx) =>
@@ -230,5 +301,27 @@ namespace LINVAST.Imperative.Builders.Python
         // keyword_pattern: name '=' pattern
         public override ASTNode VisitKeyword_pattern(Python3Parser.Keyword_patternContext ctx) =>
             throw new NotImplementedException("keyword_pattern");
+
+
+        private DeclarationNode CreateForLoopDeclaration(Python3Parser.For_stmtContext ctx)
+        {
+            ASTNode visited = this.Visit(ctx.exprlist());
+            if (visited is ExprListNode exprList) {
+                VarDeclNode[] varDecls = exprList.Expressions
+                    .Select(e => new VarDeclNode(e.Line, e.As<IdNode>()))
+                    .ToArray();
+                return varDecls.Length == 1 ? varDecls[0] : new DeclListNode(ctx.Start.Line, varDecls);
+            }
+
+            return new VarDeclNode(ctx.Start.Line, visited.As<IdNode>());
+        }
+
+        private BlockStatNode AppendLoopElse(BlockStatNode body, StatNode elseBlock, int line)
+        {
+            if (elseBlock is BlockStatNode elseBody)
+                return new BlockStatNode(line, body.Children.Concat(elseBody.Children));
+
+            return new BlockStatNode(line, body.Children.Append(elseBlock));
+        }
     }
 }
