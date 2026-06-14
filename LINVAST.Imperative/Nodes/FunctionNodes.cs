@@ -177,10 +177,10 @@ namespace LINVAST.Imperative.Nodes
     public class FuncParamNode : DeclarationNode
     {
         [JsonIgnore]
-        public DeclSpecsNode Specifiers => this.Children[0].As<DeclSpecsNode>();
+        public DeclSpecsNode Specifiers => this.ChildrenWithoutTags.ElementAt(0).As<DeclSpecsNode>();
 
         [JsonIgnore]
-        public DeclNode Declarator => this.Children[1].As<DeclNode>();
+        public DeclNode Declarator => this.ChildrenWithoutTags.ElementAt(1).As<DeclNode>();
 
 
         public FuncParamNode(int line, DeclSpecsNode declSpecs, DeclNode declarator)
