@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
 using Antlr4.Runtime;
 using Antlr4.Runtime.Tree;
 using LINVAST.Builders;
@@ -133,8 +132,7 @@ namespace LINVAST.Imperative.Builders.Python
         public override ASTNode VisitStar_expr(Python3Parser.Star_exprContext ctx)
         {
             ExprNode inner = this.Visit(ctx.expr()).As<ExprNode>();
-            var op = UnaryOpNode.FromSymbol(ctx.Start.Line, "*");
-            return new UnaryExprNode(ctx.Start.Line, op, inner);
+            return new AssignExprNode(ctx.Start.Line, new IdNode(ctx.Start.Line, "*"), inner);
         }
 
         // atom_expr: AWAIT? atom trailer*
@@ -298,14 +296,12 @@ namespace LINVAST.Imperative.Builders.Python
 
             if (ctx.POWER() is not null) {
                 ExprNode value = this.Visit(ctx.test()[0]).As<ExprNode>();
-                var op = UnaryOpNode.FromSymbol(ctx.Start.Line, "**");
-                return new UnaryExprNode(ctx.Start.Line, op, value);
+                return new AssignExprNode(ctx.Start.Line, new IdNode(ctx.Start.Line, "**"), value);
             }
 
             if (ctx.STAR() is not null) {
                 ExprNode value = this.Visit(ctx.test()[0]).As<ExprNode>();
-                var op = UnaryOpNode.FromSymbol(ctx.Start.Line, "*");
-                return new UnaryExprNode(ctx.Start.Line, op, value);
+                return new AssignExprNode(ctx.Start.Line, new IdNode(ctx.Start.Line, "*"), value);
             }
 
             if (ctx.ASSIGN() is not null) {
@@ -536,26 +532,100 @@ namespace LINVAST.Imperative.Builders.Python
 
         private static bool IsFormatStringToken(string token)
         {
-            int index = 0;
-            while (index < token.Length && "fFrRbBuU".Contains(token[index]))
-                index++;
-            return index > 0 && token[index] is '"' or '\'';
+            (int prefixEnd, _, bool isFormat) = ParseStringPrefixes(token);
+            return isFormat && prefixEnd < token.Length && IsStringDelimiter(token, prefixEnd);
         }
 
         private static string DecodePythonString(string token)
         {
-            int index = 0;
-            while (index < token.Length && "fFrRbBuU".Contains(token[index]))
-                index++;
-
-            if (index >= token.Length - 1)
+            (int prefixEnd, bool isRaw, _) = ParseStringPrefixes(token);
+            if (prefixEnd >= token.Length || !IsStringDelimiter(token, prefixEnd))
                 return token;
 
-            char quote = token[index];
-            string content = token[(index + 1)..^1];
-            if (quote == '\'')
-                return content.Replace("\\'", "'").Replace("\\\\", "\\");
-            return Regex.Unescape(content);
+            int quoteLength = GetQuoteLength(token, prefixEnd);
+            int contentStart = prefixEnd + quoteLength;
+            int contentEnd = token.Length - quoteLength;
+            if (contentStart > contentEnd)
+                return token;
+
+            string content = token[contentStart..contentEnd];
+            return isRaw ? content : UnescapePythonStringContent(content);
+        }
+
+        private static (int PrefixEnd, bool IsRaw, bool IsFormat) ParseStringPrefixes(string token)
+        {
+            int index = 0;
+            bool isRaw = false;
+            bool isFormat = false;
+            while (index < token.Length) {
+                switch (token[index]) {
+                    case 'r':
+                    case 'R':
+                        isRaw = true;
+                        index++;
+                        break;
+                    case 'u':
+                    case 'U':
+                        index++;
+                        break;
+                    case 'b':
+                    case 'B':
+                        index++;
+                        break;
+                    case 'f':
+                    case 'F':
+                        isFormat = true;
+                        index++;
+                        break;
+                    default:
+                        return (index, isRaw, isFormat);
+                }
+            }
+            return (index, isRaw, isFormat);
+        }
+
+        private static bool IsStringDelimiter(string token, int index) =>
+            index < token.Length && token[index] is '"' or '\'';
+
+        private static int GetQuoteLength(string token, int index)
+        {
+            if (index + 2 < token.Length
+                && token[index] == token[index + 1]
+                && token[index] == token[index + 2])
+                return 3;
+            return 1;
+        }
+
+        private static string UnescapePythonStringContent(string content)
+        {
+            var result = new StringBuilder(content.Length);
+            for (int i = 0; i < content.Length; i++) {
+                if (content[i] != '\\') {
+                    result.Append(content[i]);
+                    continue;
+                }
+                if (++i >= content.Length) {
+                    result.Append('\\');
+                    break;
+                }
+                switch (content[i]) {
+                    case 'n': result.Append('\n'); break;
+                    case 'r': result.Append('\r'); break;
+                    case 't': result.Append('\t'); break;
+                    case '\\': result.Append('\\'); break;
+                    case '\'': result.Append('\''); break;
+                    case '"': result.Append('"'); break;
+                    case 'a': result.Append('\a'); break;
+                    case 'b': result.Append('\b'); break;
+                    case 'f': result.Append('\f'); break;
+                    case 'v': result.Append('\v'); break;
+                    default:
+                        result.Append('\\');
+                        result.Append(content[i]);
+                        break;
+                }
+            }
+            return result.ToString();
         }
     }
 }
