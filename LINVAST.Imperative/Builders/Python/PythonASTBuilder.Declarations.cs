@@ -79,7 +79,7 @@ namespace LINVAST.Imperative.Builders.Python
         public override ASTNode VisitExpr_stmt(Python3Parser.Expr_stmtContext ctx)
         {
             if (ctx.annassign() is not null) {
-                ExprNode target = this.Visit(ctx.testlist_star_expr()).As<ExprNode>();
+                ExprNode target = this.Visit(ctx.testlist_star_expr()[0]).As<ExprNode>();
                 Python3Parser.AnnassignContext ann = ctx.annassign();
                 string typeName = ann.test()[0].GetText();
 
@@ -93,7 +93,7 @@ namespace LINVAST.Imperative.Builders.Python
             }
 
             if (ctx.augassign() is not null) {
-                ExprNode target = this.Visit(ctx.testlist_star_expr()).As<ExprNode>();
+                ExprNode target = this.Visit(ctx.testlist_star_expr()[0]).As<ExprNode>();
                 AssignOpNode op = AssignOpNode.FromSymbol(ctx.augassign().Start.Line, ctx.augassign().GetText());
                 Python3Parser.TestlistContext testlistCtx = ctx.testlist();
                 ExprNode value = testlistCtx is not null
@@ -127,7 +127,7 @@ namespace LINVAST.Imperative.Builders.Python
             }
 
             return new ExprStatNode(ctx.Start.Line,
-                this.Visit(ctx.testlist_star_expr()).As<ExprNode>());
+                this.Visit(ctx.testlist_star_expr()[0]).As<ExprNode>());
         }
 
         public override ASTNode VisitAnnassign(Python3Parser.AnnassignContext ctx) =>
