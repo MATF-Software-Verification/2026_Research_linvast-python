@@ -33,13 +33,14 @@ namespace LINVAST.Imperative.Builders.Python
 
             if (ctx.STAR() is not null)
                 return new ImportListNode(ctx.Start.Line,
-                    new ImportNode(ctx.Start.Line, modulePath + ".*"));
+                    new ImportNode(ctx.Start.Line, modulePath.EndsWith('.') ? modulePath + "*" : modulePath + ".*"));
 
             var imports = ctx.import_as_names().import_as_name()
                 .Select(ian =>
                 {
                     ImportNode baseImport = this.Visit(ian).As<ImportNode>();
-                    return new ImportNode(ian.Start.Line, modulePath + "." + baseImport.Directive, baseImport.QualifiedAs);
+                    string sep = modulePath.EndsWith('.') ? "" : ".";
+                    return new ImportNode(ian.Start.Line, modulePath + sep + baseImport.Directive, baseImport.QualifiedAs);
                 });
 
             return new ImportListNode(ctx.Start.Line, imports);
