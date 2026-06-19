@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Antlr4.Runtime;
 using Antlr4.Runtime.Tree;
@@ -22,6 +23,7 @@ namespace LINVAST.Imperative.Builders.Python
             lexer.AddErrorListener(new ThrowExceptionErrorListener());
             ITokenStream tokens = new CommonTokenStream(lexer);
             var parser = new Python3Parser(tokens);
+            parser.BuildParseTree = true;
             parser.RemoveErrorListeners();
             parser.AddErrorListener(new ThrowExceptionErrorListener());
             return parser;
@@ -63,5 +65,35 @@ namespace LINVAST.Imperative.Builders.Python
 
         public override ASTNode VisitSimple_stmt(Python3Parser.Simple_stmtContext ctx) =>
             this.Visit(ctx.children.Single(c => c is ParserRuleContext));
+
+        private static DeclStatNode MakeVarDecl(int line, IdNode identifier, ExprNode? initializer, string typeName)
+        {
+            var declSpecs = new DeclSpecsNode(line, typeName);
+            DeclNode decl = initializer is not null
+                ? new VarDeclNode(line, identifier, initializer)
+                : new VarDeclNode(line, identifier);
+            return new DeclStatNode(line, declSpecs, new DeclListNode(line, decl));
+        }
+
+        private IReadOnlyList<ASTNode> AddDeclarations(IEnumerable<ASTNode> statements)
+        {
+            var nodes = new List<ASTNode>();
+            var declared = new HashSet<string>();
+            foreach (ASTNode stat in statements) {
+                if (stat is ExprStatNode expr && expr.Expression is AssignExprNode assign && assign.LeftOperand is IdNode id) {
+                    if (!declared.Contains(id.Identifier)) {
+                        var declSpecs = new DeclSpecsNode(id.Line);
+                        var declList = new DeclListNode(id.Line, new VarDeclNode(id.Line, id, assign.RightOperand));
+                        nodes.Add(new DeclStatNode(id.Line, declSpecs, declList));
+                        declared.Add(id.Identifier);
+                    } else {
+                        nodes.Add(stat);
+                    }
+                } else {
+                    nodes.Add(stat);
+                }
+            }
+            return nodes.AsReadOnly();
+        }
     }
 }
