@@ -51,7 +51,7 @@ namespace LINVAST.Imperative.Builders.Python
         {
             var names = ctx.name();
             string directive = names[0].GetText();
-            string alias = names.Length > 1 ? names[1].GetText() : null;
+            string? alias = names.Length > 1 ? names[1].GetText() : null;
             return new ImportNode(ctx.Start.Line, directive, alias);
         }
 
@@ -59,7 +59,7 @@ namespace LINVAST.Imperative.Builders.Python
         public override ASTNode VisitDotted_as_name(Python3Parser.Dotted_as_nameContext ctx)
         {
             string directive = ctx.dotted_name().GetText();
-            string alias = ctx.name() is not null ? ctx.name().GetText() : null;
+            string? alias = ctx.name() is not null ? ctx.name().GetText() : null;
             return new ImportNode(ctx.Start.Line, directive, alias);
         }
 
@@ -87,7 +87,7 @@ namespace LINVAST.Imperative.Builders.Python
                 if (target is not IdNode idTarget)
                     return new ExprStatNode(ctx.Start.Line, target);
 
-                ExprNode initializer = ann.test().Length > 1
+                ExprNode? initializer = ann.test().Length > 1
                     ? this.Visit(ann.test()[1]).As<ExprNode>()
                     : null;
                 return MakeVarDecl(ctx.Start.Line, idTarget, initializer, typeName);
