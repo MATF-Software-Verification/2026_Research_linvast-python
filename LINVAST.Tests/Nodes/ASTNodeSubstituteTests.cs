@@ -87,5 +87,23 @@ namespace LINVAST.Tests.Nodes
 
             Assert.That(ast1.Substitute(new IdNode(2, "x"), new IdNode(2, "X")), Is.EqualTo(ast2));
         }
+
+        [Test]
+        public void GlobalStatementSubstituteTest()
+        {
+            ASTNode ast1 = new GlobalStatNode(1, new IdNode(1, "x"), new IdNode(1, "y"));
+            ASTNode ast2 = new GlobalStatNode(1, new IdNode(1, "X"), new IdNode(1, "y"));
+
+            Assert.That(ast1.Substitute(new IdNode(2, "x"), new IdNode(2, "X")), Is.EqualTo(ast2));
+        }
+
+        [Test]
+        public void NonlocalStatementSubstituteTest()
+        {
+            ASTNode ast1 = new NonlocalStatNode(1, new IdNode(1, "x"), new IdNode(1, "y"));
+            ASTNode ast2 = new NonlocalStatNode(1, new IdNode(1, "X"), new IdNode(1, "y"));
+
+            Assert.That(ast1.Substitute(new IdNode(2, "x"), new IdNode(2, "X")), Is.EqualTo(ast2));
+        }
     }
 }

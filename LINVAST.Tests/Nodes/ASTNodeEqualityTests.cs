@@ -640,6 +640,53 @@ namespace LINVAST.Tests.Nodes
             AssertNodes(ast1, ast2, eq: false);
         }
 
+        [Test]
+        public void GlobalStatementEqualityTest1()
+        {
+            ASTNode ast1 = new GlobalStatNode(1, new IdNode(1, "x"), new IdNode(1, "y"));
+            ASTNode ast2 = new GlobalStatNode(5, new IdNode(5, "x"), new IdNode(5, "y"));
+            AssertNodes(ast1, ast2, eq: true);
+        }
+
+        [Test]
+        public void GlobalStatementDifferenceTest2()
+        {
+            ASTNode ast1 = new GlobalStatNode(1, new IdNode(1, "x"), new IdNode(1, "y"));
+            ASTNode ast2 = new GlobalStatNode(5, new IdNode(5, "x"), new IdNode(5, "z"));
+            AssertNodes(ast1, ast2, eq: false);
+        }
+
+        [Test]
+        public void GlobalStatementDifferenceTest3()
+        {
+            ASTNode ast1 = new GlobalStatNode(1, new IdNode(1, "x"));
+            ASTNode ast2 = new GlobalStatNode(5, new IdNode(5, "x"), new IdNode(5, "y"));
+            AssertNodes(ast1, ast2, eq: false);
+        }
+
+        [Test]
+        public void NonlocalStatementEqualityTest1()
+        {
+            ASTNode ast1 = new NonlocalStatNode(1, new IdNode(1, "x"), new IdNode(1, "y"));
+            ASTNode ast2 = new NonlocalStatNode(5, new IdNode(5, "x"), new IdNode(5, "y"));
+            AssertNodes(ast1, ast2, eq: true);
+        }
+
+        [Test]
+        public void NonlocalStatementDifferenceTest2()
+        {
+            ASTNode ast1 = new NonlocalStatNode(1, new IdNode(1, "x"), new IdNode(1, "y"));
+            ASTNode ast2 = new NonlocalStatNode(5, new IdNode(5, "x"), new IdNode(5, "z"));
+            AssertNodes(ast1, ast2, eq: false);
+        }
+
+        [Test]
+        public void NonlocalStatementDifferenceTest3()
+        {
+            ASTNode ast1 = new NonlocalStatNode(1, new IdNode(1, "x"));
+            ASTNode ast2 = new NonlocalStatNode(5, new IdNode(5, "x"), new IdNode(5, "y"));
+            AssertNodes(ast1, ast2, eq: false);
+        }
 
         private static void AssertNodes(ASTNode ast1, ASTNode ast2, bool eq = true)
         {
