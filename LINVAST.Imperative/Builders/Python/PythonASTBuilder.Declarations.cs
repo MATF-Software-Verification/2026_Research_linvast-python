@@ -150,10 +150,12 @@ namespace LINVAST.Imperative.Builders.Python
 
         // global_stmt: 'global' name (',' name)*
         public override ASTNode VisitGlobal_stmt(Python3Parser.Global_stmtContext ctx) =>
-            new EmptyStatNode(ctx.Start.Line);
+            new GlobalStatNode(ctx.Start.Line,
+                ctx.name().Select(n => new IdNode(n.Start.Line, n.GetText())));
 
         // nonlocal_stmt: 'nonlocal' name (',' name)*
         public override ASTNode VisitNonlocal_stmt(Python3Parser.Nonlocal_stmtContext ctx) =>
-            new EmptyStatNode(ctx.Start.Line);
+            new NonlocalStatNode(ctx.Start.Line,
+                ctx.name().Select(n => new IdNode(n.Start.Line, n.GetText())));
     }
 }

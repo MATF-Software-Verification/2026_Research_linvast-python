@@ -38,6 +38,38 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(stat.Targets.Select(t => t.As<IdNode>().Identifier), Is.EqualTo(new[] { "a", "b" }));
         }
 
+        [Test]
+        public void GlobalStatementWithSingleIdentifierBuildsGlobalNode()
+        {
+            var stat = this.ParseSingle<GlobalStatNode>("global x\n");
+
+            Assert.That(stat.Identifiers.Select(i => i.Identifier), Is.EqualTo(new[] { "x" }));
+        }
+
+        [Test]
+        public void GlobalStatementBuildsGlobalNode()
+        {
+            var stat = this.ParseSingle<GlobalStatNode>("global x, y\n");
+
+            Assert.That(stat.Identifiers.Select(i => i.Identifier), Is.EqualTo(new[] { "x", "y" }));
+        }
+
+        [Test]
+        public void NonlocalStatementWithSingleIdentifierBuildsNonlocalNode()
+        {
+            var stat = this.ParseSingle<NonlocalStatNode>("nonlocal a\n");
+
+            Assert.That(stat.Identifiers.Select(i => i.Identifier), Is.EqualTo(new[] { "a" }));
+        }
+
+        [Test]
+        public void NonlocalStatementWithMultipleIdentifiersBuildsNonlocalNode()
+        {
+            var stat = this.ParseSingle<NonlocalStatNode>("nonlocal a, b\n");
+
+            Assert.That(stat.Identifiers.Select(i => i.Identifier), Is.EqualTo(new[] { "a", "b" }));
+        }
+
         private TNode ParseSingle<TNode>(string source)
             where TNode : ASTNode
             => this.builder.BuildFromSource(source).As<SourceNode>().Children.Single().As<TNode>();
