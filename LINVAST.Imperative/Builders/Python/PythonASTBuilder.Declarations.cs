@@ -138,8 +138,15 @@ namespace LINVAST.Imperative.Builders.Python
             throw new SyntaxErrorException("augassign should be handled by VisitExpr_stmt");
 
         // del_stmt: 'del' exprlist
-        public override ASTNode VisitDel_stmt(Python3Parser.Del_stmtContext ctx) =>
-            throw new NotImplementedException("del statement is not supported");
+        public override ASTNode VisitDel_stmt(Python3Parser.Del_stmtContext ctx)
+        {
+            ASTNode visited = this.Visit(ctx.exprlist());
+
+            if (visited is ExprListNode exprList)
+                return new DeleteStatNode(ctx.Start.Line, exprList.Expressions);
+
+            return new DeleteStatNode(ctx.Start.Line, visited.As<ExprNode>());
+        }
 
         // global_stmt: 'global' name (',' name)*
         public override ASTNode VisitGlobal_stmt(Python3Parser.Global_stmtContext ctx) =>
