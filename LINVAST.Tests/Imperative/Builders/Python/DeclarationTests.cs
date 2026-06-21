@@ -22,7 +22,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
-        public void DelStatementBuildsDeleteNode()
+        public void DelSingleTarget()
         {
             var stat = this.ParseSingle<DeleteStatNode>("del x\n");
 
@@ -31,7 +31,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
-        public void DelStatementWithMultipleTargetsBuildsDeleteNode()
+        public void DelMultipleTargets()
         {
             var stat = this.ParseSingle<DeleteStatNode>("del a, b\n");
 
@@ -39,7 +39,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
-        public void GlobalStatementWithSingleIdentifierBuildsGlobalNode()
+        public void GlobalSingleIdentifier()
         {
             var stat = this.ParseSingle<GlobalStatNode>("global x\n");
 
@@ -47,7 +47,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
-        public void GlobalStatementBuildsGlobalNode()
+        public void GlobalMultipleIdentifiers()
         {
             var stat = this.ParseSingle<GlobalStatNode>("global x, y\n");
 
@@ -55,7 +55,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
-        public void NonlocalStatementWithSingleIdentifierBuildsNonlocalNode()
+        public void NonlocalSingleIdentifier()
         {
             var stat = this.ParseSingle<NonlocalStatNode>("nonlocal a\n");
 
@@ -63,7 +63,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
-        public void NonlocalStatementWithMultipleIdentifiersBuildsNonlocalNode()
+        public void NonlocalMultipleIdentifiers()
         {
             var stat = this.ParseSingle<NonlocalStatNode>("nonlocal a, b\n");
 
