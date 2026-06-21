@@ -91,6 +91,22 @@ namespace LINVAST.Imperative.Nodes
             : base(line, expr) { }
     }
 
+    public sealed class DeleteStatNode : SimpleStatNode
+    {
+        [JsonIgnore]
+        public IEnumerable<ExprNode> Targets => this.Children.Cast<ExprNode>();
+
+
+        public DeleteStatNode(int line, IEnumerable<ExprNode> targets)
+            : base(line, targets.Cast<ASTNode>()) { }
+
+        public DeleteStatNode(int line, params ExprNode[] targets)
+            : base(line, targets.Cast<ASTNode>()) { }
+
+
+        public override string GetText() => $"del {string.Join(", ", this.Targets.Select(t => t.GetText()))}";
+    }
+
     public sealed class IfStatNode : ComplexStatNode
     {
         [JsonIgnore]

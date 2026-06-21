@@ -46,6 +46,7 @@ namespace LINVAST.Imperative.Visitors
         public virtual TResult Visit(DictDeclNode node) => this.VisitChildren(node);
         public virtual TResult Visit(DictEntryNode node) => this.VisitChildren(node);
         public virtual TResult Visit(DictInitNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(DeleteStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(EmptyStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ExprListNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ExprStatNode node) => this.VisitChildren(node);
