@@ -107,6 +107,38 @@ namespace LINVAST.Imperative.Nodes
         public override string GetText() => $"del {string.Join(", ", this.Targets.Select(t => t.GetText()))}";
     }
 
+    public sealed class GlobalStatNode : SimpleStatNode
+    {
+        [JsonIgnore]
+        public IEnumerable<IdNode> Identifiers => this.Children.Cast<IdNode>();
+
+
+        public GlobalStatNode(int line, IEnumerable<IdNode> identifiers)
+            : base(line, identifiers.Cast<ASTNode>()) { }
+
+        public GlobalStatNode(int line, params IdNode[] identifiers)
+            : base(line, identifiers.Cast<ASTNode>()) { }
+
+
+        public override string GetText() => $"global {string.Join(", ", this.Identifiers.Select(i => i.Identifier))}";
+    }
+
+    public sealed class NonlocalStatNode : SimpleStatNode
+    {
+        [JsonIgnore]
+        public IEnumerable<IdNode> Identifiers => this.Children.Cast<IdNode>();
+
+
+        public NonlocalStatNode(int line, IEnumerable<IdNode> identifiers)
+            : base(line, identifiers.Cast<ASTNode>()) { }
+
+        public NonlocalStatNode(int line, params IdNode[] identifiers)
+            : base(line, identifiers.Cast<ASTNode>()) { }
+
+
+        public override string GetText() => $"nonlocal {string.Join(", ", this.Identifiers.Select(i => i.Identifier))}";
+    }
+
     public sealed class IfStatNode : ComplexStatNode
     {
         [JsonIgnore]
