@@ -91,6 +91,7 @@ namespace LINVAST.Imperative.Nodes
             : base(line, expr) { }
     }
 
+    // Python-specific
     public sealed class DeleteStatNode : SimpleStatNode
     {
         [JsonIgnore]
@@ -107,6 +108,7 @@ namespace LINVAST.Imperative.Nodes
         public override string GetText() => $"del {string.Join(", ", this.Targets.Select(t => t.GetText()))}";
     }
 
+    // Python-specific
     public sealed class GlobalStatNode : SimpleStatNode
     {
         [JsonIgnore]
@@ -123,6 +125,7 @@ namespace LINVAST.Imperative.Nodes
         public override string GetText() => $"global {string.Join(", ", this.Identifiers.Select(i => i.Identifier))}";
     }
 
+    // Python-specific
     public sealed class NonlocalStatNode : SimpleStatNode
     {
         [JsonIgnore]
