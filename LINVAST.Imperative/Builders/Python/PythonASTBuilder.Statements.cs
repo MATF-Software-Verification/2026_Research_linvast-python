@@ -96,8 +96,13 @@ namespace LINVAST.Imperative.Builders.Python
             throw new NotImplementedException("except_clause");
 
         // async_stmt: ASYNC (funcdef | with_stmt | for_stmt)
-        public override ASTNode VisitAsync_stmt(Python3Parser.Async_stmtContext ctx) =>
+        public override ASTNode VisitAsync_stmt(Python3Parser.Async_stmtContext ctx)
+        {
+            if (ctx.funcdef() is not null)
+                return this.CreateFunctionNode(ctx.funcdef(), new[] { new TagNode(ctx.Start.Line, "async") });
+
             throw new NotImplementedException("async_stmt");
+        }
 
         // flow_stmt: break_stmt | continue_stmt | return_stmt | raise_stmt | yield_stmt
         public override ASTNode VisitFlow_stmt(Python3Parser.Flow_stmtContext ctx) =>
