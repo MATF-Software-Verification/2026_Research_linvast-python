@@ -38,6 +38,7 @@ namespace LINVAST.Imperative.Visitors
         public virtual TResult Visit(AssignOpNode node) => this.VisitChildren(node);
         public virtual TResult Visit(BinaryLogicOpNode node) => this.VisitChildren(node);
         public virtual TResult Visit(BlockStatNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(CatchClauseNode node) => this.VisitChildren(node);
         public virtual TResult Visit(CondExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(DeclSpecsNode node) => this.VisitChildren(node);
         public virtual TResult Visit(DeclStatNode node) => this.VisitChildren(node);
@@ -68,6 +69,7 @@ namespace LINVAST.Imperative.Visitors
         public virtual TResult Visit(RelExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(RelOpNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ThrowStatNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(TryStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(SourceNode node) => this.VisitChildren(node);
         public virtual TResult Visit(UnaryExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(UnaryOpNode node) => this.VisitChildren(node);

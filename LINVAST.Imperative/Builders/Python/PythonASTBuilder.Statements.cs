@@ -80,8 +80,33 @@ namespace LINVAST.Imperative.Builders.Python
         }
 
         // try_stmt: 'try' ':' block ((except_clause ':' block)+ ... | 'finally' ':' block)
-        public override ASTNode VisitTry_stmt(Python3Parser.Try_stmtContext ctx) =>
-            throw new NotImplementedException("try_stmt");
+        public override ASTNode VisitTry_stmt(Python3Parser.Try_stmtContext ctx)
+        {
+            StatNode tryBody = this.Visit(ctx.block(0)).As<StatNode>();
+            Python3Parser.Except_clauseContext[] exceptClauses = ctx.except_clause();
+
+            if (exceptClauses.Length == 0) {
+                StatNode finallyBody = this.Visit(ctx.block(1)).As<StatNode>();
+                return new TryStatNode(ctx.Start.Line, tryBody, System.Array.Empty<CatchClauseNode>(), null, finallyBody);
+            }
+
+            var catches = new CatchClauseNode[exceptClauses.Length];
+            for (int i = 0; i < exceptClauses.Length; i++) {
+                StatNode handlerBody = this.Visit(ctx.block(i + 1)).As<StatNode>();
+                catches[i] = this.BuildCatchClause(exceptClauses[i], handlerBody);
+            }
+
+            int blockIndex = exceptClauses.Length + 1;
+            StatNode? elseStat = null;
+            if (ctx.ELSE() is not null)
+                elseStat = this.Visit(ctx.block(blockIndex++)).As<StatNode>();
+
+            StatNode? finallyStat = null;
+            if (ctx.FINALLY() is not null)
+                finallyStat = this.Visit(ctx.block(blockIndex)).As<StatNode>();
+
+            return new TryStatNode(ctx.Start.Line, tryBody, catches, elseStat, finallyStat);
+        }
 
         // with_stmt: 'with' with_item (',' with_item)* ':' block
         public override ASTNode VisitWith_stmt(Python3Parser.With_stmtContext ctx)
@@ -109,8 +134,15 @@ namespace LINVAST.Imperative.Builders.Python
         }
 
         // except_clause: 'except' (test ('as' name)?)?
-        public override ASTNode VisitExcept_clause(Python3Parser.Except_clauseContext ctx) =>
-            throw new NotImplementedException("except_clause");
+        public override ASTNode VisitExcept_clause(Python3Parser.Except_clauseContext ctx)
+        {
+            (ExprNode? exceptionType, IdNode? binding) = this.ParseExceptClause(ctx);
+            if (exceptionType is null)
+                return new ExprListNode(ctx.Start.Line);
+            if (binding is null)
+                return new ExprListNode(ctx.Start.Line, exceptionType);
+            return new ExprListNode(ctx.Start.Line, new[] { exceptionType, binding });
+        }
 
         // async_stmt: ASYNC (funcdef | with_stmt | for_stmt)
         public override ASTNode VisitAsync_stmt(Python3Parser.Async_stmtContext ctx) =>
@@ -349,6 +381,22 @@ namespace LINVAST.Imperative.Builders.Python
             ExprNode context = this.Visit(ctx.test()).As<ExprNode>();
             ExprNode? target = ctx.expr() is null ? null : this.Visit(ctx.expr()).As<ExprNode>();
             return (context, target);
+        }
+
+        private (ExprNode? exceptionType, IdNode? binding) ParseExceptClause(Python3Parser.Except_clauseContext ctx)
+        {
+            if (ctx.test() is null)
+                return (null, null);
+
+            ExprNode exceptionType = this.Visit(ctx.test()).As<ExprNode>();
+            IdNode? binding = ctx.name() is null ? null : this.Visit(ctx.name()).As<IdNode>();
+            return (exceptionType, binding);
+        }
+
+        private CatchClauseNode BuildCatchClause(Python3Parser.Except_clauseContext ctx, StatNode body)
+        {
+            (ExprNode? exceptionType, IdNode? binding) = this.ParseExceptClause(ctx);
+            return new CatchClauseNode(ctx.Start.Line, body, exceptionType, binding);
         }
     }
 }
