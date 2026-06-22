@@ -22,6 +22,23 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
+        public void AnnotatedAssignmentPreservesGenericTypeText()
+        {
+            var declaration = this.ParseSingle<DeclStatNode>("items: List[int] = values\n");
+
+            Assert.That(declaration.Specifiers.TypeName, Is.EqualTo("List[int]"));
+        }
+
+        [Test]
+        public void AnnotatedAssignmentOnNonIdentifierTargetWithInitializerKeepsAssignment()
+        {
+            var stat = this.ParseSingle<ExprStatNode>("arr[0]: int = 42\n");
+
+            Assert.That(stat.Expression, Is.TypeOf<AssignExprNode>());
+            Assert.That(stat.Expression.As<AssignExprNode>().RightOperand.As<LitExprNode>().Value, Is.EqualTo("42"));
+        }
+
+        [Test]
         public void DelSingleTarget()
         {
             var stat = this.ParseSingle<DeleteStatNode>("del x\n");

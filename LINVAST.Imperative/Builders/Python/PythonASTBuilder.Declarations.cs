@@ -84,8 +84,14 @@ namespace LINVAST.Imperative.Builders.Python
                 Python3Parser.AnnassignContext ann = ctx.annassign();
                 string typeName = ann.test()[0].GetText();
 
-                if (target is not IdNode idTarget)
+                if (target is not IdNode idTarget) {
+                    ExprNode? exprInitializer = ann.test().Length > 1
+                        ? this.Visit(ann.test()[1]).As<ExprNode>()
+                        : null;
+                    if (exprInitializer is not null)
+                        return new ExprStatNode(ctx.Start.Line, new AssignExprNode(ctx.Start.Line, target, exprInitializer));
                     return new ExprStatNode(ctx.Start.Line, target);
+                }
 
                 ExprNode? initializer = ann.test().Length > 1
                     ? this.Visit(ann.test()[1]).As<ExprNode>()
