@@ -281,9 +281,9 @@ namespace LINVAST.Imperative.Builders.Python
             if (ctx.sequence_pattern() is not null)
                 return this.Visit(ctx.sequence_pattern());
             if (ctx.mapping_pattern() is not null)
-                throw new NotImplementedException("mapping_pattern");
+                return this.Visit(ctx.mapping_pattern());
             if (ctx.class_pattern() is not null)
-                throw new NotImplementedException("class_pattern");
+                return this.Visit(ctx.class_pattern());
 
             throw new SyntaxErrorException("Unsupported closed pattern", ctx.Start.Line, ctx.Start.Column);
         }
@@ -438,36 +438,78 @@ namespace LINVAST.Imperative.Builders.Python
         }
 
         // mapping_pattern: '{' ... '}'
-        public override ASTNode VisitMapping_pattern(Python3Parser.Mapping_patternContext ctx) =>
-            throw new NotImplementedException("mapping_pattern");
+        public override ASTNode VisitMapping_pattern(Python3Parser.Mapping_patternContext ctx)
+        {
+            KeyValuePatternNode[] items = ctx.items_pattern() is null
+                ? System.Array.Empty<KeyValuePatternNode>()
+                : this.ParseItemsPattern(ctx.items_pattern());
+
+            DoubleStarPatternNode? rest = ctx.double_star_pattern() is null
+                ? null
+                : this.Visit(ctx.double_star_pattern()).As<DoubleStarPatternNode>();
+
+            return new MappingPatternNode(ctx.Start.Line, items, rest);
+        }
 
         // items_pattern: key_value_pattern (',' key_value_pattern)*
-        public override ASTNode VisitItems_pattern(Python3Parser.Items_patternContext ctx) =>
-            throw new NotImplementedException("items_pattern");
+        public override ASTNode VisitItems_pattern(Python3Parser.Items_patternContext ctx)
+        {
+            KeyValuePatternNode[] items = this.ParseItemsPattern(ctx);
+            return new MappingPatternNode(ctx.Start.Line, items, null);
+        }
 
         // key_value_pattern: (literal_expr | attr) ':' pattern
-        public override ASTNode VisitKey_value_pattern(Python3Parser.Key_value_patternContext ctx) =>
-            throw new NotImplementedException("key_value_pattern");
+        public override ASTNode VisitKey_value_pattern(Python3Parser.Key_value_patternContext ctx)
+        {
+            ExprNode key = ctx.literal_expr() is not null
+                ? this.BuildLiteralValue(ctx.literal_expr())
+                : this.Visit(ctx.attr()).As<ExprNode>();
+            PatternNode value = this.Visit(ctx.pattern()).As<PatternNode>();
+            return new KeyValuePatternNode(ctx.Start.Line, key, value);
+        }
 
         // double_star_pattern: '**' pattern_capture_target
-        public override ASTNode VisitDouble_star_pattern(Python3Parser.Double_star_patternContext ctx) =>
-            throw new NotImplementedException("double_star_pattern");
+        public override ASTNode VisitDouble_star_pattern(Python3Parser.Double_star_patternContext ctx)
+        {
+            IdNode target = this.Visit(ctx.pattern_capture_target()).As<IdNode>();
+            return new DoubleStarPatternNode(ctx.Start.Line, target);
+        }
 
         // class_pattern: name_or_attr '(' ... ')'
-        public override ASTNode VisitClass_pattern(Python3Parser.Class_patternContext ctx) =>
-            throw new NotImplementedException("class_pattern");
+        public override ASTNode VisitClass_pattern(Python3Parser.Class_patternContext ctx)
+        {
+            IdNode className = this.Visit(ctx.name_or_attr()).As<IdNode>();
+            PatternNode[] positional = ctx.positional_patterns() is null
+                ? System.Array.Empty<PatternNode>()
+                : this.ParsePositionalPatterns(ctx.positional_patterns());
+            KeywordPatternNode[] keywords = ctx.keyword_patterns() is null
+                ? System.Array.Empty<KeywordPatternNode>()
+                : this.ParseKeywordPatterns(ctx.keyword_patterns());
+
+            return new ClassPatternNode(ctx.Start.Line, className, positional, keywords);
+        }
 
         // positional_patterns: pattern (',' pattern)*
-        public override ASTNode VisitPositional_patterns(Python3Parser.Positional_patternsContext ctx) =>
-            throw new NotImplementedException("positional_patterns");
+        public override ASTNode VisitPositional_patterns(Python3Parser.Positional_patternsContext ctx)
+        {
+            PatternNode[] patterns = this.ParsePositionalPatterns(ctx);
+            return new PatternListNode(ctx.Start.Line, patterns);
+        }
 
         // keyword_patterns: keyword_pattern (',' keyword_pattern)*
-        public override ASTNode VisitKeyword_patterns(Python3Parser.Keyword_patternsContext ctx) =>
-            throw new NotImplementedException("keyword_patterns");
+        public override ASTNode VisitKeyword_patterns(Python3Parser.Keyword_patternsContext ctx)
+        {
+            KeywordPatternNode[] patterns = this.ParseKeywordPatterns(ctx);
+            return new PatternListNode(ctx.Start.Line, patterns);
+        }
 
         // keyword_pattern: name '=' pattern
-        public override ASTNode VisitKeyword_pattern(Python3Parser.Keyword_patternContext ctx) =>
-            throw new NotImplementedException("keyword_pattern");
+        public override ASTNode VisitKeyword_pattern(Python3Parser.Keyword_patternContext ctx)
+        {
+            IdNode name = this.Visit(ctx.name()).As<IdNode>();
+            PatternNode pattern = this.Visit(ctx.pattern()).As<PatternNode>();
+            return new KeywordPatternNode(ctx.Start.Line, name, pattern);
+        }
 
 
         private DeclarationNode CreateForLoopDeclaration(Python3Parser.For_stmtContext ctx)
@@ -562,5 +604,20 @@ namespace LINVAST.Imperative.Builders.Python
                 elements.AddRange(this.ParseMaybeSequencePattern(ctx.maybe_sequence_pattern()));
             return elements.ToArray();
         }
+
+        private KeyValuePatternNode[] ParseItemsPattern(Python3Parser.Items_patternContext ctx) =>
+            ctx.key_value_pattern()
+                .Select(item => this.Visit(item).As<KeyValuePatternNode>())
+                .ToArray();
+
+        private PatternNode[] ParsePositionalPatterns(Python3Parser.Positional_patternsContext ctx) =>
+            ctx.pattern()
+                .Select(pattern => this.Visit(pattern).As<PatternNode>())
+                .ToArray();
+
+        private KeywordPatternNode[] ParseKeywordPatterns(Python3Parser.Keyword_patternsContext ctx) =>
+            ctx.keyword_pattern()
+                .Select(keyword => this.Visit(keyword).As<KeywordPatternNode>())
+                .ToArray();
     }
 }

@@ -41,6 +41,7 @@ namespace LINVAST.Imperative.Visitors
         public virtual TResult Visit(BlockStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(CatchClauseNode node) => this.VisitChildren(node);
         public virtual TResult Visit(CapturePatternNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(ClassPatternNode node) => this.VisitChildren(node);
         public virtual TResult Visit(CondExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(DeclSpecsNode node) => this.VisitChildren(node);
         public virtual TResult Visit(DeclStatNode node) => this.VisitChildren(node);
@@ -49,6 +50,7 @@ namespace LINVAST.Imperative.Visitors
         public virtual TResult Visit(DictDeclNode node) => this.VisitChildren(node);
         public virtual TResult Visit(DictEntryNode node) => this.VisitChildren(node);
         public virtual TResult Visit(DictInitNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(DoubleStarPatternNode node) => this.VisitChildren(node);
         public virtual TResult Visit(EmptyStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ExprListNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ExprStatNode node) => this.VisitChildren(node);
@@ -64,13 +66,17 @@ namespace LINVAST.Imperative.Visitors
         public virtual TResult Visit(IfStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(IncExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(JumpStatNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(KeyValuePatternNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(KeywordPatternNode node) => this.VisitChildren(node);
         public virtual TResult Visit(LabeledStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(LambdaFuncExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(LitExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(LogicExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(LiteralPatternNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(MappingPatternNode node) => this.VisitChildren(node);
         public virtual TResult Visit(NullLitExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(OrPatternNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(PatternListNode node) => this.VisitChildren(node);
         public virtual TResult Visit(RelExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(RelOpNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ThrowStatNode node) => this.VisitChildren(node);

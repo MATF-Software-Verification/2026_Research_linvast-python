@@ -117,6 +117,64 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(pattern.Target, Is.Null);
         }
 
+        [Test]
+        public void EmptyMappingPatternBuildsMappingPatternNode()
+        {
+            var pattern = this.ParsePattern<MappingPatternNode>("{}");
+
+            Assert.That(pattern.Items, Is.Empty);
+            Assert.That(pattern.Rest, Is.Null);
+        }
+
+        [Test]
+        public void MappingPatternWithRestBuildsDoubleStarPatternNode()
+        {
+            var pattern = this.ParsePattern<MappingPatternNode>("{**rest}");
+
+            Assert.That(pattern.Items, Is.Empty);
+            Assert.That(pattern.Rest!.Target.Identifier, Is.EqualTo("rest"));
+        }
+
+        [Test]
+        public void MappingPatternWithItemsBuildsKeyValuePatternNodes()
+        {
+            var pattern = this.ParsePattern<MappingPatternNode>("{1: x}");
+
+            Assert.That(pattern.Items.ToList(), Has.Count.EqualTo(1));
+            Assert.That(pattern.Items.Single().Key, Is.TypeOf<LitExprNode>());
+            Assert.That(pattern.Items.Single().Value, Is.TypeOf<CapturePatternNode>());
+        }
+
+        [Test]
+        public void EmptyClassPatternBuildsClassPatternNode()
+        {
+            var pattern = this.ParsePattern<ClassPatternNode>("Point()");
+
+            Assert.That(pattern.ClassName.Identifier, Is.EqualTo("Point"));
+            Assert.That(pattern.PositionalPatterns, Is.Empty);
+            Assert.That(pattern.KeywordPatterns, Is.Empty);
+        }
+
+        [Test]
+        public void ClassPatternWithPositionalArgumentsBuildsClassPatternNode()
+        {
+            var pattern = this.ParsePattern<ClassPatternNode>("Point(x, y)");
+
+            Assert.That(pattern.ClassName.Identifier, Is.EqualTo("Point"));
+            Assert.That(pattern.PositionalPatterns.ToList(), Has.Count.EqualTo(2));
+            Assert.That(pattern.KeywordPatterns, Is.Empty);
+        }
+
+        [Test]
+        public void ClassPatternWithKeywordArgumentsBuildsClassPatternNode()
+        {
+            var pattern = this.ParsePattern<ClassPatternNode>("Point(x=1)");
+
+            Assert.That(pattern.ClassName.Identifier, Is.EqualTo("Point"));
+            Assert.That(pattern.PositionalPatterns, Is.Empty);
+            Assert.That(pattern.KeywordPatterns.Single().Name.Identifier, Is.EqualTo("x"));
+        }
+
         private TPattern ParsePattern<TPattern>(string source)
             where TPattern : PatternNode
             => this.Parse<TPattern>(source, parser => parser.closed_pattern());

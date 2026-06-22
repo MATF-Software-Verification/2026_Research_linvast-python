@@ -145,4 +145,152 @@ namespace LINVAST.Imperative.Nodes
         public override string GetText()
             => this.IsWildcard ? "*_" : $"*{this.Target!.GetText()}";
     }
+
+    public sealed class KeyValuePatternNode : PatternNode
+    {
+        [JsonIgnore]
+        public ExprNode Key => this.Children[0].As<ExprNode>();
+
+        [JsonIgnore]
+        public PatternNode Value => this.Children[1].As<PatternNode>();
+
+
+        public KeyValuePatternNode(int line, ExprNode key, PatternNode value)
+            : base(line, key, value) { }
+
+
+        public override string GetText() => $"{this.Key.GetText()}: {this.Value.GetText()}";
+    }
+
+    public sealed class DoubleStarPatternNode : PatternNode
+    {
+        [JsonIgnore]
+        public IdNode Target => this.Children[0].As<IdNode>();
+
+
+        public DoubleStarPatternNode(int line, IdNode target)
+            : base(line, target) { }
+
+
+        public override string GetText() => $"**{this.Target.GetText()}";
+    }
+
+    public sealed class MappingPatternNode : PatternNode
+    {
+        public int ItemCount { get; }
+        public bool HasRest { get; }
+
+        [JsonIgnore]
+        public IEnumerable<KeyValuePatternNode> Items =>
+            this.Children.Take(this.ItemCount).Cast<KeyValuePatternNode>();
+
+        [JsonIgnore]
+        public DoubleStarPatternNode? Rest =>
+            this.HasRest ? this.Children[this.ItemCount].As<DoubleStarPatternNode>() : null;
+
+
+        public MappingPatternNode(int line, KeyValuePatternNode[] items, DoubleStarPatternNode? rest)
+            : base(line, AssembleChildren(items, rest))
+        {
+            this.ItemCount = items.Length;
+            this.HasRest = rest is not null;
+        }
+
+
+        public override string GetText()
+        {
+            var parts = this.Items.Select(i => i.GetText()).ToList();
+            if (this.Rest is not null)
+                parts.Add(this.Rest.GetText());
+            return $"{{{string.Join(", ", parts)}}}";
+        }
+
+
+        private static ASTNode[] AssembleChildren(KeyValuePatternNode[] items, DoubleStarPatternNode? rest)
+        {
+            var children = new List<ASTNode>(items);
+            if (rest is not null)
+                children.Add(rest);
+            return children.ToArray();
+        }
+    }
+
+    public sealed class KeywordPatternNode : PatternNode
+    {
+        [JsonIgnore]
+        public IdNode Name => this.Children[0].As<IdNode>();
+
+        [JsonIgnore]
+        public PatternNode Pattern => this.Children[1].As<PatternNode>();
+
+
+        public KeywordPatternNode(int line, IdNode name, PatternNode pattern)
+            : base(line, name, pattern) { }
+
+
+        public override string GetText() => $"{this.Name.GetText()}={this.Pattern.GetText()}";
+    }
+
+    public sealed class ClassPatternNode : PatternNode
+    {
+        public int PositionalPatternCount { get; }
+        public bool HasKeywordPatterns { get; }
+
+        [JsonIgnore]
+        public IdNode ClassName => this.Children[0].As<IdNode>();
+
+        [JsonIgnore]
+        public IEnumerable<PatternNode> PositionalPatterns =>
+            this.Children.Skip(1).Take(this.PositionalPatternCount).Cast<PatternNode>();
+
+        [JsonIgnore]
+        public IEnumerable<KeywordPatternNode> KeywordPatterns =>
+            this.Children.Skip(1 + this.PositionalPatternCount).Cast<KeywordPatternNode>();
+
+
+        public ClassPatternNode(
+            int line,
+            IdNode className,
+            PatternNode[] positionalPatterns,
+            KeywordPatternNode[] keywordPatterns)
+            : base(line, AssembleChildren(className, positionalPatterns, keywordPatterns))
+        {
+            this.PositionalPatternCount = positionalPatterns.Length;
+            this.HasKeywordPatterns = keywordPatterns.Length > 0;
+        }
+
+
+        public override string GetText()
+        {
+            var args = this.PositionalPatterns.Select(p => p.GetText()).ToList();
+            args.AddRange(this.KeywordPatterns.Select(k => k.GetText()));
+            return $"{this.ClassName.GetText()}({string.Join(", ", args)})";
+        }
+
+
+        private static ASTNode[] AssembleChildren(
+            IdNode className,
+            PatternNode[] positionalPatterns,
+            KeywordPatternNode[] keywordPatterns)
+        {
+            var children = new List<ASTNode> { className };
+            children.AddRange(positionalPatterns);
+            children.AddRange(keywordPatterns);
+            return children.ToArray();
+        }
+    }
+
+    public sealed class PatternListNode : PatternNode
+    {
+        [JsonIgnore]
+        public IEnumerable<PatternNode> Patterns => this.Children.Cast<PatternNode>();
+
+
+        public PatternListNode(int line, IEnumerable<PatternNode> patterns)
+            : base(line, patterns) { }
+
+
+        public override string GetText()
+            => string.Join(", ", this.Patterns.Select(p => p.GetText()));
+    }
 }
