@@ -90,4 +90,59 @@ namespace LINVAST.Imperative.Nodes
         public override string GetText()
             => string.Join(" | ", this.Alternatives.Select(a => a.GetText()));
     }
+
+    public enum SequencePatternKind
+    {
+        Bracket,
+        Paren,
+        OpenParen,
+    }
+
+    public sealed class SequencePatternNode : PatternNode
+    {
+        public SequencePatternKind Kind { get; }
+
+        [JsonIgnore]
+        public IEnumerable<PatternNode> Elements => this.Children.Cast<PatternNode>();
+
+
+        public SequencePatternNode(int line, SequencePatternKind kind, IEnumerable<PatternNode> elements)
+            : base(line, elements)
+        {
+            this.Kind = kind;
+        }
+
+
+        public override string GetText()
+        {
+            string open = this.Kind == SequencePatternKind.Bracket ? "[" : "(";
+            string close = this.Kind == SequencePatternKind.Bracket ? "]" : ")";
+            return $"{open}{string.Join(", ", this.Elements.Select(e => e.GetText()))}{close}";
+        }
+    }
+
+    public sealed class StarPatternNode : PatternNode
+    {
+        public bool IsWildcard { get; }
+
+        [JsonIgnore]
+        public IdNode? Target => this.IsWildcard ? null : this.Children[0].As<IdNode>();
+
+
+        public StarPatternNode(int line, IdNode target)
+            : base(line, target)
+        {
+            this.IsWildcard = false;
+        }
+
+        public StarPatternNode(int line, WildcardPatternNode wildcard)
+            : base(line, wildcard)
+        {
+            this.IsWildcard = true;
+        }
+
+
+        public override string GetText()
+            => this.IsWildcard ? "*_" : $"*{this.Target!.GetText()}";
+    }
 }

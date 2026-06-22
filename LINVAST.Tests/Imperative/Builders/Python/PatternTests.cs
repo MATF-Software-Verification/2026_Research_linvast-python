@@ -70,6 +70,53 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(literal.Value, Is.EqualTo(42L));
         }
 
+        [Test]
+        public void BracketSequencePatternBuildsSequencePatternNode()
+        {
+            var pattern = this.ParsePattern<SequencePatternNode>("[1, 2]");
+
+            Assert.That(pattern.Kind, Is.EqualTo(SequencePatternKind.Bracket));
+            Assert.That(pattern.Elements.ToList(), Has.Count.EqualTo(2));
+            Assert.That(pattern.Elements, Is.All.TypeOf<LiteralPatternNode>());
+        }
+
+        [Test]
+        public void EmptyParenSequencePatternBuildsEmptySequence()
+        {
+            var pattern = this.ParsePattern<SequencePatternNode>("()");
+
+            Assert.That(pattern.Kind, Is.EqualTo(SequencePatternKind.Paren));
+            Assert.That(pattern.Elements, Is.Empty);
+        }
+
+        [Test]
+        public void OpenParenSequencePatternBuildsSingleElementTuple()
+        {
+            var pattern = this.ParsePattern<SequencePatternNode>("(x,)");
+
+            Assert.That(pattern.Kind, Is.EqualTo(SequencePatternKind.OpenParen));
+            Assert.That(pattern.Elements.Single(), Is.TypeOf<CapturePatternNode>());
+        }
+
+        [Test]
+        public void StarCapturePatternBuildsStarPatternNode()
+        {
+            var sequence = this.ParsePattern<SequencePatternNode>("[*rest]");
+            var pattern = sequence.Elements.Single().As<StarPatternNode>();
+
+            Assert.That(pattern.IsWildcard, Is.False);
+            Assert.That(pattern.Target!.Identifier, Is.EqualTo("rest"));
+        }
+
+        [Test]
+        public void StarWildcardPatternBuildsStarPatternNode()
+        {
+            var pattern = this.Parse<StarPatternNode>("*_", parser => parser.star_pattern());
+
+            Assert.That(pattern.IsWildcard, Is.True);
+            Assert.That(pattern.Target, Is.Null);
+        }
+
         private TPattern ParsePattern<TPattern>(string source)
             where TPattern : PatternNode
             => this.Parse<TPattern>(source, parser => parser.closed_pattern());

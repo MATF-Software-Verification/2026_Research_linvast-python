@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Antlr4.Runtime;
 using Antlr4.Runtime.Tree;
@@ -278,7 +279,7 @@ namespace LINVAST.Imperative.Builders.Python
             if (ctx.group_pattern() is not null)
                 return this.Visit(ctx.group_pattern());
             if (ctx.sequence_pattern() is not null)
-                throw new NotImplementedException("sequence_pattern");
+                return this.Visit(ctx.sequence_pattern());
             if (ctx.mapping_pattern() is not null)
                 throw new NotImplementedException("mapping_pattern");
             if (ctx.class_pattern() is not null)
@@ -382,24 +383,59 @@ namespace LINVAST.Imperative.Builders.Python
         }
 
         // sequence_pattern: '[' maybe_sequence_pattern? ']' | '(' open_sequence_pattern? ')'
-        public override ASTNode VisitSequence_pattern(Python3Parser.Sequence_patternContext ctx) =>
-            throw new NotImplementedException("sequence_pattern");
+        public override ASTNode VisitSequence_pattern(Python3Parser.Sequence_patternContext ctx)
+        {
+            if (ctx.OPEN_BRACK() is not null) {
+                PatternNode[] elements = ctx.maybe_sequence_pattern() is null
+                    ? System.Array.Empty<PatternNode>()
+                    : this.ParseMaybeSequencePattern(ctx.maybe_sequence_pattern());
+                return new SequencePatternNode(ctx.Start.Line, SequencePatternKind.Bracket, elements);
+            }
+
+            if (ctx.open_sequence_pattern() is null)
+                return new SequencePatternNode(ctx.Start.Line, SequencePatternKind.Paren, System.Array.Empty<PatternNode>());
+
+            PatternNode[] openElements = this.ParseOpenSequencePattern(ctx.open_sequence_pattern());
+            return new SequencePatternNode(ctx.Start.Line, SequencePatternKind.OpenParen, openElements);
+        }
 
         // open_sequence_pattern: maybe_star_pattern ',' maybe_sequence_pattern?
-        public override ASTNode VisitOpen_sequence_pattern(Python3Parser.Open_sequence_patternContext ctx) =>
-            throw new NotImplementedException("open_sequence_pattern");
+        public override ASTNode VisitOpen_sequence_pattern(Python3Parser.Open_sequence_patternContext ctx)
+        {
+            PatternNode[] elements = this.ParseOpenSequencePattern(ctx);
+            return new SequencePatternNode(ctx.Start.Line, SequencePatternKind.OpenParen, elements);
+        }
 
         // maybe_sequence_pattern: maybe_star_pattern (',' maybe_star_pattern)* ','?
-        public override ASTNode VisitMaybe_sequence_pattern(Python3Parser.Maybe_sequence_patternContext ctx) =>
-            throw new NotImplementedException("maybe_sequence_pattern");
+        public override ASTNode VisitMaybe_sequence_pattern(Python3Parser.Maybe_sequence_patternContext ctx)
+        {
+            PatternNode[] elements = this.ParseMaybeSequencePattern(ctx);
+            return new SequencePatternNode(ctx.Start.Line, SequencePatternKind.Bracket, elements);
+        }
 
         // maybe_star_pattern: star_pattern | pattern
-        public override ASTNode VisitMaybe_star_pattern(Python3Parser.Maybe_star_patternContext ctx) =>
-            throw new NotImplementedException("maybe_star_pattern");
+        public override ASTNode VisitMaybe_star_pattern(Python3Parser.Maybe_star_patternContext ctx)
+        {
+            if (ctx.star_pattern() is not null)
+                return this.Visit(ctx.star_pattern());
+
+            return this.Visit(ctx.pattern());
+        }
 
         // star_pattern: '*' pattern_capture_target | '*' wildcard_pattern
-        public override ASTNode VisitStar_pattern(Python3Parser.Star_patternContext ctx) =>
-            throw new NotImplementedException("star_pattern");
+        public override ASTNode VisitStar_pattern(Python3Parser.Star_patternContext ctx)
+        {
+            if (ctx.wildcard_pattern() is not null) {
+                WildcardPatternNode wildcard = this.Visit(ctx.wildcard_pattern()).As<WildcardPatternNode>();
+                return new StarPatternNode(ctx.Start.Line, wildcard);
+            }
+
+            IdNode target = this.Visit(ctx.pattern_capture_target()).As<IdNode>();
+            if (target.Identifier == "_")
+                return new StarPatternNode(ctx.Start.Line, new WildcardPatternNode(ctx.Start.Line));
+
+            return new StarPatternNode(ctx.Start.Line, target);
+        }
 
         // mapping_pattern: '{' ... '}'
         public override ASTNode VisitMapping_pattern(Python3Parser.Mapping_patternContext ctx) =>
@@ -512,6 +548,19 @@ namespace LINVAST.Imperative.Builders.Python
                 return new LitExprNode(ctx.Start.Line, false);
 
             throw new SyntaxErrorException("Unsupported literal expression", ctx.Start.Line, ctx.Start.Column);
+        }
+
+        private PatternNode[] ParseMaybeSequencePattern(Python3Parser.Maybe_sequence_patternContext ctx) =>
+            ctx.maybe_star_pattern()
+                .Select(maybeStar => this.Visit(maybeStar).As<PatternNode>())
+                .ToArray();
+
+        private PatternNode[] ParseOpenSequencePattern(Python3Parser.Open_sequence_patternContext ctx)
+        {
+            var elements = new List<PatternNode> { this.Visit(ctx.maybe_star_pattern()).As<PatternNode>() };
+            if (ctx.maybe_sequence_pattern() is not null)
+                elements.AddRange(this.ParseMaybeSequencePattern(ctx.maybe_sequence_pattern()));
+            return elements.ToArray();
         }
     }
 }
