@@ -136,8 +136,11 @@ namespace LINVAST.Imperative.Builders.Python
         }
 
         // yield_stmt: yield_expr
-        public override ASTNode VisitYield_stmt(Python3Parser.Yield_stmtContext ctx) =>
-            throw new NotImplementedException("yield_stmt");
+        public override ASTNode VisitYield_stmt(Python3Parser.Yield_stmtContext ctx)
+        {
+            ExprNode yieldExpr = this.Visit(ctx.yield_expr()).As<ExprNode>();
+            return new ExprStatNode(ctx.Start.Line, yieldExpr);
+        }
 
         // assert_stmt: 'assert' test (',' test)?
         public override ASTNode VisitAssert_stmt(Python3Parser.Assert_stmtContext ctx)

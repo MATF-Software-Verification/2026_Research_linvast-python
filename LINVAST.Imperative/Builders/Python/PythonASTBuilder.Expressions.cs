@@ -326,12 +326,25 @@ namespace LINVAST.Imperative.Builders.Python
             throw new NotImplementedException("comp_if");
 
         // yield_expr: 'yield' yield_arg?
-        public override ASTNode VisitYield_expr(Python3Parser.Yield_exprContext ctx) =>
-            throw new NotImplementedException("yield_expr");
+        public override ASTNode VisitYield_expr(Python3Parser.Yield_exprContext ctx)
+        {
+            if (ctx.yield_arg() is null)
+                return new YieldExprNode(ctx.Start.Line);
+
+            return this.Visit(ctx.yield_arg());
+        }
 
         // yield_arg: 'from' test | testlist
-        public override ASTNode VisitYield_arg(Python3Parser.Yield_argContext ctx) =>
-            throw new NotImplementedException("yield_arg");
+        public override ASTNode VisitYield_arg(Python3Parser.Yield_argContext ctx)
+        {
+            if (ctx.FROM() is not null) {
+                ExprNode value = this.Visit(ctx.test()).As<ExprNode>();
+                return new YieldExprNode(ctx.Start.Line, value, isDelegating: true);
+            }
+
+            ExprNode yielded = this.Visit(ctx.testlist()).As<ExprNode>();
+            return new YieldExprNode(ctx.Start.Line, yielded);
+        }
 
         // strings: STRING+
         public override ASTNode VisitStrings(Python3Parser.StringsContext ctx) =>
