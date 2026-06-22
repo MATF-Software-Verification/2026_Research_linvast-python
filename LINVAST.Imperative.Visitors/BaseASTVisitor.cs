@@ -73,6 +73,7 @@ namespace LINVAST.Imperative.Visitors
         public virtual TResult Visit(UnaryOpNode node) => this.VisitChildren(node);
         public virtual TResult Visit(VarDeclNode node) => this.VisitChildren(node);
         public virtual TResult Visit(WhileStatNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(WithStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(YieldExprNode node) => this.VisitChildren(node);
 
         protected virtual TResult DefaultResult => default!;

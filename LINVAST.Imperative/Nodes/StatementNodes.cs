@@ -114,6 +114,35 @@ namespace LINVAST.Imperative.Nodes
             => $"if {this.Condition.GetText()} {this.ThenStat.GetText()} {(this.ElseStat is null ? "" : $"else {this.ElseStat.GetText()}")}";
     }
 
+    public sealed class WithStatNode : ComplexStatNode
+    {
+        [JsonIgnore]
+        public ExprNode ContextManager => this.Children[0].As<ExprNode>();
+
+        [JsonIgnore]
+        public ExprNode? Target => this.Children.ElementAtOrDefault(1) as ExprNode;
+
+        [JsonIgnore]
+        public StatNode Body => this.Children[this.Target is null ? 1 : 2].As<StatNode>();
+
+
+        public WithStatNode(int line, ExprNode contextManager, StatNode body)
+            : base(line, contextManager, body) { }
+
+        public WithStatNode(int line, ExprNode contextManager, ExprNode target, StatNode body)
+            : base(line, contextManager, target, body) { }
+
+
+        public override string GetText()
+        {
+            var sb = new StringBuilder("with ").Append(this.ContextManager.GetText());
+            if (this.Target is not null)
+                sb.Append(" as ").Append(this.Target.GetText());
+            sb.Append(' ').Append(this.Body.GetText());
+            return sb.ToString();
+        }
+    }
+
     public sealed class JumpStatNode : SimpleStatNode
     {
         public JumpStatType Type { get; set; }

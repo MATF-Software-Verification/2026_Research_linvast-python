@@ -84,12 +84,29 @@ namespace LINVAST.Imperative.Builders.Python
             throw new NotImplementedException("try_stmt");
 
         // with_stmt: 'with' with_item (',' with_item)* ':' block
-        public override ASTNode VisitWith_stmt(Python3Parser.With_stmtContext ctx) =>
-            throw new NotImplementedException("with_stmt");
+        public override ASTNode VisitWith_stmt(Python3Parser.With_stmtContext ctx)
+        {
+            Python3Parser.With_itemContext[] items = ctx.with_item();
+            StatNode body = this.Visit(ctx.block()).As<StatNode>();
+
+            for (int i = items.Length - 1; i >= 0; i--) {
+                (ExprNode context, ExprNode? target) = this.ParseWithItem(items[i]);
+                body = target is null
+                    ? new WithStatNode(items[i].Start.Line, context, body)
+                    : new WithStatNode(items[i].Start.Line, context, target, body);
+            }
+
+            return body;
+        }
 
         // with_item: test ('as' expr)?
-        public override ASTNode VisitWith_item(Python3Parser.With_itemContext ctx) =>
-            throw new NotImplementedException("with_item");
+        public override ASTNode VisitWith_item(Python3Parser.With_itemContext ctx)
+        {
+            (ExprNode context, ExprNode? target) = this.ParseWithItem(ctx);
+            return target is null
+                ? new ExprListNode(ctx.Start.Line, context)
+                : new ExprListNode(ctx.Start.Line, new[] { context, target });
+        }
 
         // except_clause: 'except' (test ('as' name)?)?
         public override ASTNode VisitExcept_clause(Python3Parser.Except_clauseContext ctx) =>
@@ -325,6 +342,13 @@ namespace LINVAST.Imperative.Builders.Python
                 return new BlockStatNode(line, body.Children.Concat(elseBody.Children));
 
             return new BlockStatNode(line, body.Children.Append(elseBlock));
+        }
+
+        private (ExprNode context, ExprNode? target) ParseWithItem(Python3Parser.With_itemContext ctx)
+        {
+            ExprNode context = this.Visit(ctx.test()).As<ExprNode>();
+            ExprNode? target = ctx.expr() is null ? null : this.Visit(ctx.expr()).As<ExprNode>();
+            return (context, target);
         }
     }
 }
