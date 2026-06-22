@@ -425,11 +425,9 @@ namespace LINVAST.Imperative.Builders.Python
         }
 
         // group_pattern: '(' pattern ')'
+        // Grouping is purely syntactic, so the parentheses are dropped and the inner pattern is returned directly.
         public override ASTNode VisitGroup_pattern(Python3Parser.Group_patternContext ctx)
-        {
-            PatternNode pattern = this.Visit(ctx.pattern()).As<PatternNode>();
-            return new GroupPatternNode(ctx.Start.Line, pattern);
-        }
+            => this.Visit(ctx.pattern()).As<PatternNode>();
 
         // sequence_pattern: '[' maybe_sequence_pattern? ']' | '(' open_sequence_pattern? ')'
         public override ASTNode VisitSequence_pattern(Python3Parser.Sequence_patternContext ctx)

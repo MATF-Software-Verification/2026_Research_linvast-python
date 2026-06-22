@@ -64,19 +64,6 @@ namespace LINVAST.Imperative.Nodes
         public override string GetText() => this.Value.GetText();
     }
 
-    public sealed class GroupPatternNode : PatternNode
-    {
-        [JsonIgnore]
-        public PatternNode Pattern => this.Children[0].As<PatternNode>();
-
-
-        public GroupPatternNode(int line, PatternNode pattern)
-            : base(line, pattern) { }
-
-
-        public override string GetText() => $"({this.Pattern.GetText()})";
-    }
-
     public sealed class OrPatternNode : PatternNode
     {
         [JsonIgnore]
@@ -164,6 +151,9 @@ namespace LINVAST.Imperative.Nodes
             string close = this.Kind == SequencePatternKind.Bracket ? "]" : ")";
             return $"{open}{string.Join(", ", this.Elements.Select(e => e.GetText()))}{close}";
         }
+
+        public override bool Equals([AllowNull] ASTNode other)
+            => base.Equals(other) && this.Kind == ((SequencePatternNode)other!).Kind;
     }
 
     public sealed class StarPatternNode : PatternNode

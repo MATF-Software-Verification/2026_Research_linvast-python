@@ -45,12 +45,11 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
-        public void GroupPatternWrapsInnerPattern()
+        public void GroupPatternReturnsInnerPattern()
         {
-            var pattern = this.ParsePattern<GroupPatternNode>("(x)");
+            var pattern = this.ParsePattern<CapturePatternNode>("(x)");
 
-            Assert.That(pattern.Pattern, Is.TypeOf<CapturePatternNode>());
-            Assert.That(pattern.Pattern.As<CapturePatternNode>().Target.Identifier, Is.EqualTo("x"));
+            Assert.That(pattern.Target.Identifier, Is.EqualTo("x"));
         }
 
         [Test]

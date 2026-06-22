@@ -320,6 +320,9 @@ namespace LINVAST.Imperative.Nodes
                 ? $"yield from {this.Value.GetText()}"
                 : $"yield {this.Value.GetText()}";
         }
+
+        public override bool Equals([AllowNull] ASTNode other)
+            => base.Equals(other) && this.IsDelegating == ((YieldExprNode)other!).IsDelegating;
     }
 
     public sealed class CondExprNode : ExprNode
