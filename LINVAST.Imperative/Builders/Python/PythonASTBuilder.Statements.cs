@@ -213,32 +213,82 @@ namespace LINVAST.Imperative.Builders.Python
         }
 
         // match_stmt: 'match' subject_expr ':' NEWLINE INDENT case_block+ DEDENT
-        public override ASTNode VisitMatch_stmt(Python3Parser.Match_stmtContext ctx) =>
-            throw new NotImplementedException("match_stmt");
+        public override ASTNode VisitMatch_stmt(Python3Parser.Match_stmtContext ctx)
+        {
+            ExprNode subject = this.Visit(ctx.subject_expr()).As<ExprNode>();
+            CaseNode[] cases = ctx.case_block()
+                .Select(caseBlock => this.Visit(caseBlock).As<CaseNode>())
+                .ToArray();
+            return new MatchStatNode(ctx.Start.Line, subject, cases);
+        }
 
         // case_block: 'case' patterns guard? ':' block
-        public override ASTNode VisitCase_block(Python3Parser.Case_blockContext ctx) =>
-            throw new NotImplementedException("case_block");
+        public override ASTNode VisitCase_block(Python3Parser.Case_blockContext ctx)
+        {
+            PatternNode pattern = this.Visit(ctx.patterns()).As<PatternNode>();
+            StatNode body = this.Visit(ctx.block()).As<StatNode>();
+
+            if (ctx.guard() is null)
+                return new CaseNode(ctx.Start.Line, pattern, body);
+
+            ExprNode guard = this.Visit(ctx.guard()).As<ExprNode>();
+            return new CaseNode(ctx.Start.Line, pattern, guard, body);
+        }
 
         // subject_expr: star_named_expression ',' star_named_expressions? | test
-        public override ASTNode VisitSubject_expr(Python3Parser.Subject_exprContext ctx) =>
-            throw new NotImplementedException("subject_expr");
+        public override ASTNode VisitSubject_expr(Python3Parser.Subject_exprContext ctx)
+        {
+            if (ctx.test() is not null)
+                return this.Visit(ctx.test());
+
+            var items = new List<ExprNode> { this.Visit(ctx.star_named_expression()).As<ExprNode>() };
+            if (ctx.star_named_expressions() is not null) {
+                ExprListNode rest = this.Visit(ctx.star_named_expressions()).As<ExprListNode>();
+                items.AddRange(rest.Expressions);
+            }
+
+            return new ArrInitExprNode(ctx.Start.Line, items);
+        }
 
         // star_named_expressions: ',' star_named_expression+ ','?
-        public override ASTNode VisitStar_named_expressions(Python3Parser.Star_named_expressionsContext ctx) =>
-            throw new NotImplementedException("star_named_expressions");
+        public override ASTNode VisitStar_named_expressions(Python3Parser.Star_named_expressionsContext ctx)
+        {
+            IEnumerable<ExprNode> expressions = ctx.star_named_expression()
+                .Select(expression => this.Visit(expression).As<ExprNode>());
+            return new ExprListNode(ctx.Start.Line, expressions);
+        }
 
         // star_named_expression: '*' expr | test
-        public override ASTNode VisitStar_named_expression(Python3Parser.Star_named_expressionContext ctx) =>
-            throw new NotImplementedException("star_named_expression");
+        public override ASTNode VisitStar_named_expression(Python3Parser.Star_named_expressionContext ctx)
+        {
+            if (ctx.expr() is not null) {
+                ExprNode value = this.Visit(ctx.expr()).As<ExprNode>();
+                return new AssignExprNode(ctx.Start.Line, new IdNode(ctx.Start.Line, "*"), value);
+            }
+
+            return this.Visit(ctx.test());
+        }
 
         // guard: 'if' test
         public override ASTNode VisitGuard(Python3Parser.GuardContext ctx) =>
-            throw new NotImplementedException("guard");
+            this.Visit(ctx.test());
 
         // patterns: open_sequence_pattern | pattern
-        public override ASTNode VisitPatterns(Python3Parser.PatternsContext ctx) =>
-            throw new NotImplementedException("patterns");
+        public override ASTNode VisitPatterns(Python3Parser.PatternsContext ctx)
+        {
+            if (ctx.open_sequence_pattern() is not null)
+                return this.Visit(ctx.open_sequence_pattern());
+
+            return this.Visit(ctx.pattern());
+        }
+
+        // as_pattern: or_pattern 'as' pattern_capture_target
+        public override ASTNode VisitAs_pattern(Python3Parser.As_patternContext ctx)
+        {
+            PatternNode pattern = this.Visit(ctx.or_pattern()).As<PatternNode>();
+            IdNode target = this.Visit(ctx.pattern_capture_target()).As<IdNode>();
+            return new AsPatternNode(ctx.Start.Line, pattern, target);
+        }
 
         // pattern: as_pattern | or_pattern
         public override ASTNode VisitPattern(Python3Parser.PatternContext ctx)
@@ -248,10 +298,6 @@ namespace LINVAST.Imperative.Builders.Python
 
             return this.Visit(ctx.or_pattern());
         }
-
-        // as_pattern: or_pattern 'as' pattern_capture_target
-        public override ASTNode VisitAs_pattern(Python3Parser.As_patternContext ctx) =>
-            throw new NotImplementedException("as_pattern");
 
         // or_pattern: closed_pattern ('|' closed_pattern)*
         public override ASTNode VisitOr_pattern(Python3Parser.Or_patternContext ctx)
@@ -344,6 +390,9 @@ namespace LINVAST.Imperative.Builders.Python
         public override ASTNode VisitCapture_pattern(Python3Parser.Capture_patternContext ctx)
         {
             IdNode target = this.Visit(ctx.pattern_capture_target()).As<IdNode>();
+            if (target.Identifier == "_")
+                return new WildcardPatternNode(ctx.Start.Line);
+
             return new CapturePatternNode(ctx.Start.Line, target);
         }
 

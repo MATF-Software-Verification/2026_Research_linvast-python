@@ -31,6 +31,7 @@ namespace LINVAST.Imperative.Visitors
 
         public virtual TResult Visit(ArithmExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(AsyncStatNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(AsPatternNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ArithmOpNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ArrAccessExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ArrDeclNode node) => this.VisitChildren(node);
@@ -41,6 +42,7 @@ namespace LINVAST.Imperative.Visitors
         public virtual TResult Visit(BlockStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(CatchClauseNode node) => this.VisitChildren(node);
         public virtual TResult Visit(CapturePatternNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(CaseNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ClassPatternNode node) => this.VisitChildren(node);
         public virtual TResult Visit(CondExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(DeclSpecsNode node) => this.VisitChildren(node);
@@ -74,6 +76,7 @@ namespace LINVAST.Imperative.Visitors
         public virtual TResult Visit(LogicExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(LiteralPatternNode node) => this.VisitChildren(node);
         public virtual TResult Visit(MappingPatternNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(MatchStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(NullLitExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(OrPatternNode node) => this.VisitChildren(node);
         public virtual TResult Visit(PatternListNode node) => this.VisitChildren(node);

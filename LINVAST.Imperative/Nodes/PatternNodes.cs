@@ -91,6 +91,51 @@ namespace LINVAST.Imperative.Nodes
             => string.Join(" | ", this.Alternatives.Select(a => a.GetText()));
     }
 
+    public sealed class AsPatternNode : PatternNode
+    {
+        [JsonIgnore]
+        public PatternNode Pattern => this.Children[0].As<PatternNode>();
+
+        [JsonIgnore]
+        public IdNode Target => this.Children[1].As<IdNode>();
+
+
+        public AsPatternNode(int line, PatternNode pattern, IdNode target)
+            : base(line, pattern, target) { }
+
+
+        public override string GetText() => $"{this.Pattern.GetText()} as {this.Target.GetText()}";
+    }
+
+    public sealed class CaseNode : ASTNode
+    {
+        [JsonIgnore]
+        public PatternNode Pattern => this.Children[0].As<PatternNode>();
+
+        [JsonIgnore]
+        public ExprNode? Guard => this.Children.Count == 3 ? this.Children[1].As<ExprNode>() : null;
+
+        [JsonIgnore]
+        public StatNode Body => this.Children[this.Children.Count - 1].As<StatNode>();
+
+
+        public CaseNode(int line, PatternNode pattern, StatNode body)
+            : base(line, pattern, body) { }
+
+        public CaseNode(int line, PatternNode pattern, ExprNode guard, StatNode body)
+            : base(line, pattern, guard, body) { }
+
+
+        public override string GetText()
+        {
+            var sb = new StringBuilder("case ").Append(this.Pattern.GetText());
+            if (this.Guard is not null)
+                sb.Append(" if ").Append(this.Guard.GetText());
+            sb.Append(' ').Append(this.Body.GetText());
+            return sb.ToString();
+        }
+    }
+
     public enum SequencePatternKind
     {
         Bracket,
