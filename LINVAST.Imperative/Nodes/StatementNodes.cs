@@ -244,6 +244,22 @@ namespace LINVAST.Imperative.Nodes
         }
     }
 
+    public sealed class AsyncStatNode : ComplexStatNode
+    {
+        [JsonIgnore]
+        public IEnumerable<TagNode> Tags => this.Children.TakeWhile(e => e is TagNode).Cast<TagNode>();
+
+        [JsonIgnore]
+        public StatNode Statement => this.Children.SkipWhile(e => e is TagNode).Single().As<StatNode>();
+
+
+        public AsyncStatNode(int line, StatNode statement)
+            : base(line, new TagNode(line, "async"), statement) { }
+
+
+        public override string GetText() => $"async {this.Statement.GetText()}";
+    }
+
     public sealed class JumpStatNode : SimpleStatNode
     {
         public JumpStatType Type { get; set; }

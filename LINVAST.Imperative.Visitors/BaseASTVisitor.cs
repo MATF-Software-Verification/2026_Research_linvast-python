@@ -30,6 +30,7 @@ namespace LINVAST.Imperative.Visitors
         }
 
         public virtual TResult Visit(ArithmExprNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(AsyncStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ArithmOpNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ArrAccessExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ArrDeclNode node) => this.VisitChildren(node);
