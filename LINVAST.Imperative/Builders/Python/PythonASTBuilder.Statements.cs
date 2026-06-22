@@ -3,6 +3,7 @@ using System.Linq;
 using Antlr4.Runtime;
 using Antlr4.Runtime.Tree;
 using LINVAST.Builders;
+using LINVAST.Exceptions;
 using LINVAST.Imperative.Nodes;
 using LINVAST.Imperative.Nodes.Common;
 using LINVAST.Nodes;
@@ -239,76 +240,146 @@ namespace LINVAST.Imperative.Builders.Python
             throw new NotImplementedException("patterns");
 
         // pattern: as_pattern | or_pattern
-        public override ASTNode VisitPattern(Python3Parser.PatternContext ctx) =>
-            throw new NotImplementedException("pattern");
+        public override ASTNode VisitPattern(Python3Parser.PatternContext ctx)
+        {
+            if (ctx.as_pattern() is not null)
+                return this.Visit(ctx.as_pattern());
+
+            return this.Visit(ctx.or_pattern());
+        }
 
         // as_pattern: or_pattern 'as' pattern_capture_target
         public override ASTNode VisitAs_pattern(Python3Parser.As_patternContext ctx) =>
             throw new NotImplementedException("as_pattern");
 
         // or_pattern: closed_pattern ('|' closed_pattern)*
-        public override ASTNode VisitOr_pattern(Python3Parser.Or_patternContext ctx) =>
-            throw new NotImplementedException("or_pattern");
+        public override ASTNode VisitOr_pattern(Python3Parser.Or_patternContext ctx)
+        {
+            PatternNode[] alternatives = ctx.closed_pattern()
+                .Select(closed => this.Visit(closed).As<PatternNode>())
+                .ToArray();
+
+            return alternatives.Length == 1
+                ? alternatives[0]
+                : new OrPatternNode(ctx.Start.Line, alternatives);
+        }
 
         // closed_pattern: literal_pattern | capture_pattern | wildcard_pattern | value_pattern | group_pattern | sequence_pattern | mapping_pattern | class_pattern
-        public override ASTNode VisitClosed_pattern(Python3Parser.Closed_patternContext ctx) =>
-            throw new NotImplementedException("closed_pattern");
+        public override ASTNode VisitClosed_pattern(Python3Parser.Closed_patternContext ctx)
+        {
+            if (ctx.literal_pattern() is not null)
+                return this.Visit(ctx.literal_pattern());
+            if (ctx.capture_pattern() is not null)
+                return this.Visit(ctx.capture_pattern());
+            if (ctx.wildcard_pattern() is not null)
+                return this.Visit(ctx.wildcard_pattern());
+            if (ctx.value_pattern() is not null)
+                return this.Visit(ctx.value_pattern());
+            if (ctx.group_pattern() is not null)
+                return this.Visit(ctx.group_pattern());
+            if (ctx.sequence_pattern() is not null)
+                throw new NotImplementedException("sequence_pattern");
+            if (ctx.mapping_pattern() is not null)
+                throw new NotImplementedException("mapping_pattern");
+            if (ctx.class_pattern() is not null)
+                throw new NotImplementedException("class_pattern");
+
+            throw new SyntaxErrorException("Unsupported closed pattern", ctx.Start.Line, ctx.Start.Column);
+        }
 
         // literal_pattern: signed_number | complex_number | strings | 'None' | 'True' | 'False'
-        public override ASTNode VisitLiteral_pattern(Python3Parser.Literal_patternContext ctx) =>
-            throw new NotImplementedException("literal_pattern");
+        public override ASTNode VisitLiteral_pattern(Python3Parser.Literal_patternContext ctx)
+        {
+            ExprNode value = this.BuildLiteralValue(ctx);
+            return new LiteralPatternNode(ctx.Start.Line, value);
+        }
 
         // literal_expr: signed_number | complex_number | strings | 'None' | 'True' | 'False'
         public override ASTNode VisitLiteral_expr(Python3Parser.Literal_exprContext ctx) =>
-            throw new NotImplementedException("literal_expr");
+            this.BuildLiteralValue(ctx);
 
         // complex_number: signed_real_number ('+' | '-') imaginary_number
-        public override ASTNode VisitComplex_number(Python3Parser.Complex_numberContext ctx) =>
-            throw new NotImplementedException("complex_number");
+        public override ASTNode VisitComplex_number(Python3Parser.Complex_numberContext ctx)
+        {
+            LitExprNode real = this.Visit(ctx.signed_real_number()).As<LitExprNode>();
+            LitExprNode imaginary = this.Visit(ctx.imaginary_number()).As<LitExprNode>();
+            System.Numerics.Complex value = ToComplex(real);
+            if (ctx.MINUS() is not null)
+                value -= ToComplex(imaginary);
+            else
+                value += ToComplex(imaginary);
+
+            return new LitExprNode(ctx.Start.Line, value);
+        }
 
         // signed_number: NUMBER | '-' NUMBER
-        public override ASTNode VisitSigned_number(Python3Parser.Signed_numberContext ctx) =>
-            throw new NotImplementedException("signed_number");
+        public override ASTNode VisitSigned_number(Python3Parser.Signed_numberContext ctx)
+        {
+            string text = ctx.NUMBER().GetText();
+            if (ctx.MINUS() is not null)
+                text = "-" + text;
+            return ParseNumber(ctx.Start.Line, text);
+        }
 
         // signed_real_number: real_number | '-' real_number
-        public override ASTNode VisitSigned_real_number(Python3Parser.Signed_real_numberContext ctx) =>
-            throw new NotImplementedException("signed_real_number");
+        public override ASTNode VisitSigned_real_number(Python3Parser.Signed_real_numberContext ctx)
+        {
+            LitExprNode real = this.Visit(ctx.real_number()).As<LitExprNode>();
+            if (ctx.MINUS() is null)
+                return real;
+
+            return new LitExprNode(ctx.Start.Line, -Convert.ToDouble(real.Value));
+        }
 
         // real_number: NUMBER
         public override ASTNode VisitReal_number(Python3Parser.Real_numberContext ctx) =>
-            throw new NotImplementedException("real_number");
+            ParseNumber(ctx.Start.Line, ctx.NUMBER().GetText());
 
         // imaginary_number: NUMBER
         public override ASTNode VisitImaginary_number(Python3Parser.Imaginary_numberContext ctx) =>
-            throw new NotImplementedException("imaginary_number");
+            ParseImaginaryNumber(ctx.Start.Line, ctx.NUMBER().GetText());
 
         // capture_pattern: pattern_capture_target
-        public override ASTNode VisitCapture_pattern(Python3Parser.Capture_patternContext ctx) =>
-            throw new NotImplementedException("capture_pattern");
+        public override ASTNode VisitCapture_pattern(Python3Parser.Capture_patternContext ctx)
+        {
+            IdNode target = this.Visit(ctx.pattern_capture_target()).As<IdNode>();
+            return new CapturePatternNode(ctx.Start.Line, target);
+        }
 
         // pattern_capture_target: name
         public override ASTNode VisitPattern_capture_target(Python3Parser.Pattern_capture_targetContext ctx) =>
-            throw new NotImplementedException("pattern_capture_target");
+            this.Visit(ctx.name());
 
         // wildcard_pattern: '_'
         public override ASTNode VisitWildcard_pattern(Python3Parser.Wildcard_patternContext ctx) =>
-            throw new NotImplementedException("wildcard_pattern");
+            new WildcardPatternNode(ctx.Start.Line);
 
         // value_pattern: attr
-        public override ASTNode VisitValue_pattern(Python3Parser.Value_patternContext ctx) =>
-            throw new NotImplementedException("value_pattern");
+        public override ASTNode VisitValue_pattern(Python3Parser.Value_patternContext ctx)
+        {
+            IdNode value = this.Visit(ctx.attr()).As<IdNode>();
+            return new ValuePatternNode(ctx.Start.Line, value);
+        }
 
         // attr: name ('.' name)+
         public override ASTNode VisitAttr(Python3Parser.AttrContext ctx) =>
-            throw new NotImplementedException("attr");
+            new IdNode(ctx.Start.Line, ctx.GetText());
 
         // name_or_attr: attr | name
-        public override ASTNode VisitName_or_attr(Python3Parser.Name_or_attrContext ctx) =>
-            throw new NotImplementedException("name_or_attr");
+        public override ASTNode VisitName_or_attr(Python3Parser.Name_or_attrContext ctx)
+        {
+            if (ctx.attr() is not null)
+                return this.Visit(ctx.attr());
+
+            return this.Visit(ctx.name());
+        }
 
         // group_pattern: '(' pattern ')'
-        public override ASTNode VisitGroup_pattern(Python3Parser.Group_patternContext ctx) =>
-            throw new NotImplementedException("group_pattern");
+        public override ASTNode VisitGroup_pattern(Python3Parser.Group_patternContext ctx)
+        {
+            PatternNode pattern = this.Visit(ctx.pattern()).As<PatternNode>();
+            return new GroupPatternNode(ctx.Start.Line, pattern);
+        }
 
         // sequence_pattern: '[' maybe_sequence_pattern? ']' | '(' open_sequence_pattern? ')'
         public override ASTNode VisitSequence_pattern(Python3Parser.Sequence_patternContext ctx) =>
@@ -405,6 +476,42 @@ namespace LINVAST.Imperative.Builders.Python
         {
             (ExprNode? exceptionType, IdNode? binding) = this.ParseExceptClause(ctx);
             return new CatchClauseNode(ctx.Start.Line, body, exceptionType, binding);
+        }
+
+        private ExprNode BuildLiteralValue(Python3Parser.Literal_patternContext ctx)
+        {
+            if (ctx.signed_number() is not null)
+                return this.Visit(ctx.signed_number()).As<ExprNode>();
+            if (ctx.complex_number() is not null)
+                return this.Visit(ctx.complex_number()).As<ExprNode>();
+            if (ctx.strings() is not null)
+                return this.Visit(ctx.strings()).As<ExprNode>();
+            if (ctx.NONE() is not null)
+                return new NullLitExprNode(ctx.Start.Line);
+            if (ctx.TRUE() is not null)
+                return new LitExprNode(ctx.Start.Line, true);
+            if (ctx.FALSE() is not null)
+                return new LitExprNode(ctx.Start.Line, false);
+
+            throw new SyntaxErrorException("Unsupported literal pattern", ctx.Start.Line, ctx.Start.Column);
+        }
+
+        private ExprNode BuildLiteralValue(Python3Parser.Literal_exprContext ctx)
+        {
+            if (ctx.signed_number() is not null)
+                return this.Visit(ctx.signed_number()).As<ExprNode>();
+            if (ctx.complex_number() is not null)
+                return this.Visit(ctx.complex_number()).As<ExprNode>();
+            if (ctx.strings() is not null)
+                return this.Visit(ctx.strings()).As<ExprNode>();
+            if (ctx.NONE() is not null)
+                return new NullLitExprNode(ctx.Start.Line);
+            if (ctx.TRUE() is not null)
+                return new LitExprNode(ctx.Start.Line, true);
+            if (ctx.FALSE() is not null)
+                return new LitExprNode(ctx.Start.Line, false);
+
+            throw new SyntaxErrorException("Unsupported literal expression", ctx.Start.Line, ctx.Start.Column);
         }
     }
 }

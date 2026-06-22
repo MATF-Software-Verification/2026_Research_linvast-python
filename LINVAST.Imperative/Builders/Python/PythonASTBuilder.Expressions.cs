@@ -528,7 +528,7 @@ namespace LINVAST.Imperative.Builders.Python
         {
             text = text.Replace("_", string.Empty);
             if (text.EndsWith("j", StringComparison.OrdinalIgnoreCase))
-                throw new NotImplementedException("complex number literals");
+                return ParseImaginaryNumber(line, text);
 
             if (text.Contains('.') || text.Contains('e') || text.Contains('E'))
                 return new LitExprNode(line, double.Parse(text, CultureInfo.InvariantCulture));
@@ -541,6 +541,24 @@ namespace LINVAST.Imperative.Builders.Python
                 return new LitExprNode(line, Convert.ToInt64(text[2..], 2));
 
             return new LitExprNode(line, long.Parse(text, CultureInfo.InvariantCulture));
+        }
+
+        private static LitExprNode ParseImaginaryNumber(int line, string text)
+        {
+            text = text.Replace("_", string.Empty);
+            string magnitude = text[..^1];
+            if (magnitude is "+" or "-")
+                magnitude += "1";
+            double imaginary = double.Parse(magnitude, CultureInfo.InvariantCulture);
+            return new LitExprNode(line, new System.Numerics.Complex(0, imaginary));
+        }
+
+        private static System.Numerics.Complex ToComplex(LitExprNode literal)
+        {
+            if (literal.Value is System.Numerics.Complex complex)
+                return complex;
+
+            return new System.Numerics.Complex(Convert.ToDouble(literal.Value), 0);
         }
 
         private static bool IsFormatStringToken(string token)
