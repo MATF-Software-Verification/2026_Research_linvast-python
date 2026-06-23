@@ -83,13 +83,30 @@ namespace LINVAST.Imperative.Builders.Python
             var nodes = new List<ASTNode>();
             var declared = new HashSet<string>();
             foreach (ASTNode stat in statements) {
-                if (stat is ExprStatNode expr && expr.Expression is AssignExprNode assign && assign.LeftOperand is IdNode id) {
-                    if (!declared.Contains(id.Identifier)) {
-                        var declSpecs = new DeclSpecsNode(id.Line);
-                        var declList = new DeclListNode(id.Line, new VarDeclNode(id.Line, id, assign.RightOperand));
-                        nodes.Add(new DeclStatNode(id.Line, declSpecs, declList));
-                        declared.Add(id.Identifier);
+                if (stat is DeclStatNode declStat) {
+                    foreach (DeclNode declarator in declStat.DeclaratorList.Declarators)
+                        declared.Add(declarator.Identifier);
+                    nodes.Add(stat);
+                    continue;
+                }
+
+                if (stat is ExprStatNode expr && expr.Expression is AssignExprNode assign) {
+                    // Try single identifier assignment first
+                    if (assign.LeftOperand is IdNode id) {
+                        if (!declared.Contains(id.Identifier)) {
+                            var declSpecs = new DeclSpecsNode(id.Line);
+                            var declList = new DeclListNode(id.Line, new VarDeclNode(id.Line, id, assign.RightOperand));
+                            nodes.Add(new DeclStatNode(id.Line, declSpecs, declList));
+                            declared.Add(id.Identifier);
+                        } else {
+                            nodes.Add(stat);
+                        }
+                    }
+                    // Try tuple unpacking assignment
+                    else if (this.TryPromoteTupleUnpacking(assign.LeftOperand, assign.RightOperand, assign.Line, nodes, declared)) {
+                        // Successfully promoted to declarations
                     } else {
+                        // Could not promote, keep as expression statement
                         nodes.Add(stat);
                     }
                 } else {

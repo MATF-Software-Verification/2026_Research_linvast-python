@@ -90,5 +90,54 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         private TNode ParseSingle<TNode>(string source)
             where TNode : ASTNode
             => this.builder.BuildFromSource(source).As<SourceNode>().Children.Single().As<TNode>();
+
+        [Test]
+        public void TupleUnpackingSimple()
+        {
+            var source = "a, b = 1, 2\n";
+            var nodes = this.builder.BuildFromSource(source).As<SourceNode>().Children;
+
+            Assert.That(nodes.Single(), Is.TypeOf<DeclStatNode>());
+            var declStat = nodes.Single().As<DeclStatNode>();
+            var varDecls = declStat.DeclaratorList.Declarators.ToList();
+
+            Assert.That(varDecls.Count(), Is.EqualTo(2));
+            Assert.That(varDecls[0].As<VarDeclNode>().Identifier, Is.EqualTo("a"));
+            Assert.That(varDecls[1].As<VarDeclNode>().Identifier, Is.EqualTo("b"));
+        }
+
+        [Test]
+        public void TupleUnpackingMismatchedCounts()
+        {
+            var source = "x, y, z = 1, 2\n";
+            var nodes = this.builder.BuildFromSource(source).As<SourceNode>().Children;
+
+            Assert.That(nodes.Single(), Is.TypeOf<ExprStatNode>());
+            Assert.That(nodes.Single().As<ExprStatNode>().Expression, Is.TypeOf<AssignExprNode>());
+        }
+
+        [Test]
+        public void TupleUnpackingWithPreviouslyDeclaredIdentifierKeepsAssignment()
+        {
+            var source = "a: int = 0\na, b = 1, 2\n";
+            var nodes = this.builder.BuildFromSource(source).As<SourceNode>().Children.ToList();
+
+            Assert.That(nodes.Count, Is.EqualTo(2));
+            Assert.That(nodes[0], Is.TypeOf<DeclStatNode>());
+            Assert.That(nodes[1], Is.TypeOf<ExprStatNode>());
+            Assert.That(nodes[1].As<ExprStatNode>().Expression, Is.TypeOf<AssignExprNode>());
+        }
+
+        [Test]
+        public void ReassignmentAfterAnnotatedDeclarationIsNotRedeclared()
+        {
+            var source = "count: int = 1\ncount = 2\n";
+            var nodes = this.builder.BuildFromSource(source).As<SourceNode>().Children.ToList();
+
+            Assert.That(nodes.Count, Is.EqualTo(2));
+            Assert.That(nodes[0], Is.TypeOf<DeclStatNode>());
+            Assert.That(nodes[1], Is.TypeOf<ExprStatNode>());
+            Assert.That(nodes[1].As<ExprStatNode>().Expression, Is.TypeOf<AssignExprNode>());
+        }
     }
 }
