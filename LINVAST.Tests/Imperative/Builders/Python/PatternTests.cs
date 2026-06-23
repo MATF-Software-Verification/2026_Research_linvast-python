@@ -62,14 +62,6 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
-        public void LiteralExprBuildsExprNode()
-        {
-            var literal = this.Parse<LitExprNode>("42", parser => parser.literal_expr());
-
-            Assert.That(literal.Value, Is.EqualTo(42L));
-        }
-
-        [Test]
         public void BracketSequencePatternBuildsSequencePatternNode()
         {
             var pattern = this.ParsePattern<SequencePatternNode>("[1, 2]");

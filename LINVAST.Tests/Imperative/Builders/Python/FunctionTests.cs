@@ -56,6 +56,18 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(decorator.Identifier, Is.EqualTo("route.get(\"/items\")"));
         }
 
+        [Test]
+        public void AsyncDefBuildsFuncNodeWithAsyncTag()
+        {
+            var function = this.ParseStatement("async def f():\n    pass\n").As<FuncNode>();
+
+            Assert.That(function.Tags.Single().Identifier, Is.EqualTo("async"));
+            Assert.That(function.Identifier, Is.EqualTo("f"));
+        }
+
+        private StatNode ParseStatement(string source)
+            => this.builder.BuildFromSource(source).As<SourceNode>().Children.Single().As<StatNode>();
+
         private TNode Parse<TNode>(string source, System.Func<Python3Parser, Antlr4.Runtime.ParserRuleContext> entry)
             where TNode : ASTNode
             => this.builder.BuildFromSource(source, entry).As<TNode>();
