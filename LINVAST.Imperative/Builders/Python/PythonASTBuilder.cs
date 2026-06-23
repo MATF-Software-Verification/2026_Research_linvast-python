@@ -44,8 +44,11 @@ namespace LINVAST.Imperative.Builders.Python
 
         public override ASTNode VisitFile_input(Python3Parser.File_inputContext ctx)
         {
-            var children = ctx.stmt().Select(this.Visit);
-            return new SourceNode(children);
+            IEnumerable<ASTNode> statements = ctx.stmt()
+                .Select(this.Visit)
+                .SelectMany(node => node is BlockStatNode block ? block.Children : new[] { node });
+
+            return new SourceNode(this.AddDeclarations(statements));
         }
 
         public override ASTNode VisitStmt(Python3Parser.StmtContext ctx)
