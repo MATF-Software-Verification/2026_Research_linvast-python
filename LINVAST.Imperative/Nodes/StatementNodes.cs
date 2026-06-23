@@ -91,6 +91,57 @@ namespace LINVAST.Imperative.Nodes
             : base(line, expr) { }
     }
 
+    // Python-specific
+    public sealed class DeleteStatNode : SimpleStatNode
+    {
+        [JsonIgnore]
+        public IEnumerable<ExprNode> Targets => this.Children.Cast<ExprNode>();
+
+
+        public DeleteStatNode(int line, IEnumerable<ExprNode> targets)
+            : base(line, targets.Cast<ASTNode>()) { }
+
+        public DeleteStatNode(int line, params ExprNode[] targets)
+            : base(line, targets.Cast<ASTNode>()) { }
+
+
+        public override string GetText() => $"del {string.Join(", ", this.Targets.Select(t => t.GetText()))}";
+    }
+
+    // Python-specific
+    public sealed class GlobalStatNode : SimpleStatNode
+    {
+        [JsonIgnore]
+        public IEnumerable<IdNode> Identifiers => this.Children.Cast<IdNode>();
+
+
+        public GlobalStatNode(int line, IEnumerable<IdNode> identifiers)
+            : base(line, identifiers.Cast<ASTNode>()) { }
+
+        public GlobalStatNode(int line, params IdNode[] identifiers)
+            : base(line, identifiers.Cast<ASTNode>()) { }
+
+
+        public override string GetText() => $"global {string.Join(", ", this.Identifiers.Select(i => i.Identifier))}";
+    }
+
+    // Python-specific
+    public sealed class NonlocalStatNode : SimpleStatNode
+    {
+        [JsonIgnore]
+        public IEnumerable<IdNode> Identifiers => this.Children.Cast<IdNode>();
+
+
+        public NonlocalStatNode(int line, IEnumerable<IdNode> identifiers)
+            : base(line, identifiers.Cast<ASTNode>()) { }
+
+        public NonlocalStatNode(int line, params IdNode[] identifiers)
+            : base(line, identifiers.Cast<ASTNode>()) { }
+
+
+        public override string GetText() => $"nonlocal {string.Join(", ", this.Identifiers.Select(i => i.Identifier))}";
+    }
+
     public sealed class IfStatNode : ComplexStatNode
     {
         [JsonIgnore]

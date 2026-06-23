@@ -84,8 +84,14 @@ namespace LINVAST.Imperative.Builders.Python
                 Python3Parser.AnnassignContext ann = ctx.annassign();
                 string typeName = ann.test()[0].GetText();
 
-                if (target is not IdNode idTarget)
+                if (target is not IdNode idTarget) {
+                    ExprNode? exprInitializer = ann.test().Length > 1
+                        ? this.Visit(ann.test()[1]).As<ExprNode>()
+                        : null;
+                    if (exprInitializer is not null)
+                        return new ExprStatNode(ctx.Start.Line, new AssignExprNode(ctx.Start.Line, target, exprInitializer));
                     return new ExprStatNode(ctx.Start.Line, target);
+                }
 
                 ExprNode? initializer = ann.test().Length > 1
                     ? this.Visit(ann.test()[1]).As<ExprNode>()
@@ -138,15 +144,24 @@ namespace LINVAST.Imperative.Builders.Python
             throw new SyntaxErrorException("augassign should be handled by VisitExpr_stmt");
 
         // del_stmt: 'del' exprlist
-        public override ASTNode VisitDel_stmt(Python3Parser.Del_stmtContext ctx) =>
-            throw new NotImplementedException("del statement is not supported");
+        public override ASTNode VisitDel_stmt(Python3Parser.Del_stmtContext ctx)
+        {
+            ASTNode visited = this.Visit(ctx.exprlist());
+
+            if (visited is ExprListNode exprList)
+                return new DeleteStatNode(ctx.Start.Line, exprList.Expressions);
+
+            return new DeleteStatNode(ctx.Start.Line, visited.As<ExprNode>());
+        }
 
         // global_stmt: 'global' name (',' name)*
         public override ASTNode VisitGlobal_stmt(Python3Parser.Global_stmtContext ctx) =>
-            new EmptyStatNode(ctx.Start.Line);
+            new GlobalStatNode(ctx.Start.Line,
+                ctx.name().Select(n => new IdNode(n.Start.Line, n.GetText())));
 
         // nonlocal_stmt: 'nonlocal' name (',' name)*
         public override ASTNode VisitNonlocal_stmt(Python3Parser.Nonlocal_stmtContext ctx) =>
-            new EmptyStatNode(ctx.Start.Line);
+            new NonlocalStatNode(ctx.Start.Line,
+                ctx.name().Select(n => new IdNode(n.Start.Line, n.GetText())));
     }
 }
