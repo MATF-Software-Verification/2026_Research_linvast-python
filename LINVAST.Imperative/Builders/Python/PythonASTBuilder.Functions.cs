@@ -103,7 +103,7 @@ namespace LINVAST.Imperative.Builders.Python
         {
             var name = new IdNode(ctx.name().Start.Line, ctx.name().GetText());
             FuncParamsNode @params = this.Visit(ctx.parameters()).As<FuncParamsNode>();
-            BlockStatNode body = this.Visit(ctx.block()).As<BlockStatNode>();
+            BlockStatNode body = this.AsFunctionBody(this.Visit(ctx.block()));
             var declSpecs = new DeclSpecsNode(ctx.Start.Line, ctx.test() is null ? "void" : ctx.test().GetText());
             var decl = new FuncDeclNode(ctx.Start.Line, name, @params, body);
             var tagArray = tags?.ToArray() ?? Array.Empty<TagNode>();
@@ -111,6 +111,14 @@ namespace LINVAST.Imperative.Builders.Python
             return tagArray.Any()
                 ? new FuncNode(line, tagArray, declSpecs, decl)
                 : new FuncNode(line, declSpecs, decl);
+        }
+
+        private BlockStatNode AsFunctionBody(ASTNode body)
+        {
+            var block = body is BlockStatNode blockBody
+                ? blockBody
+                : new BlockStatNode(body.Line, body);
+            return new BlockStatNode(block.Line, this.AddDeclarations(block.Children));
         }
 
         private FuncParamsNode BuildParams(ParserRuleContext ctx)

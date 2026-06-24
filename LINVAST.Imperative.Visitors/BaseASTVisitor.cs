@@ -49,6 +49,7 @@ namespace LINVAST.Imperative.Visitors
         public virtual TResult Visit(DictDeclNode node) => this.VisitChildren(node);
         public virtual TResult Visit(DictEntryNode node) => this.VisitChildren(node);
         public virtual TResult Visit(DictInitNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(DeleteStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(EmptyStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ExprListNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ExprStatNode node) => this.VisitChildren(node);
@@ -60,6 +61,7 @@ namespace LINVAST.Imperative.Visitors
         public virtual TResult Visit(FuncParamsNode node) => this.VisitChildren(node);
         public virtual TResult Visit(IdNode node) => this.VisitChildren(node);
         public virtual TResult Visit(IdListNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(GlobalStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(IfStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(IncExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(JumpStatNode node) => this.VisitChildren(node);
@@ -68,6 +70,7 @@ namespace LINVAST.Imperative.Visitors
         public virtual TResult Visit(LitExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(LogicExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(MatchStatNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(NonlocalStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(NullLitExprNode node) => this.VisitChildren(node);
         // Python-specific patterns
         public virtual TResult Visit(PatternAsNode node) => this.VisitChildren(node);
