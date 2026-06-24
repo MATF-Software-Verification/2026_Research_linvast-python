@@ -16,61 +16,61 @@ namespace LINVAST.Imperative.Nodes
             : base(line, children) { }
     }
 
-    public sealed class LiteralPatternNode : PatternNode
+    public sealed class PatternLiteralNode : PatternNode
     {
         [JsonIgnore]
         public ExprNode Value => this.Children[0].As<ExprNode>();
 
 
-        public LiteralPatternNode(int line, ExprNode value)
+        public PatternLiteralNode(int line, ExprNode value)
             : base(line, value) { }
 
 
         public override string GetText() => this.Value.GetText();
     }
 
-    public sealed class CapturePatternNode : PatternNode
+    public sealed class PatternCaptureNode : PatternNode
     {
         [JsonIgnore]
         public IdNode Target => this.Children[0].As<IdNode>();
 
 
-        public CapturePatternNode(int line, IdNode target)
+        public PatternCaptureNode(int line, IdNode target)
             : base(line, target) { }
 
 
         public override string GetText() => this.Target.GetText();
     }
 
-    public sealed class WildcardPatternNode : PatternNode
+    public sealed class PatternWildcardNode : PatternNode
     {
-        public WildcardPatternNode(int line)
+        public PatternWildcardNode(int line)
             : base(line) { }
 
 
         public override string GetText() => "_";
     }
 
-    public sealed class ValuePatternNode : PatternNode
+    public sealed class PatternValueNode : PatternNode
     {
         [JsonIgnore]
         public IdNode Value => this.Children[0].As<IdNode>();
 
 
-        public ValuePatternNode(int line, IdNode value)
+        public PatternValueNode(int line, IdNode value)
             : base(line, value) { }
 
 
         public override string GetText() => this.Value.GetText();
     }
 
-    public sealed class OrPatternNode : PatternNode
+    public sealed class PatternOrNode : PatternNode
     {
         [JsonIgnore]
         public IEnumerable<PatternNode> Alternatives => this.Children.Cast<PatternNode>();
 
 
-        public OrPatternNode(int line, IEnumerable<PatternNode> alternatives)
+        public PatternOrNode(int line, IEnumerable<PatternNode> alternatives)
             : base(line, alternatives) { }
 
 
@@ -78,7 +78,7 @@ namespace LINVAST.Imperative.Nodes
             => string.Join(" | ", this.Alternatives.Select(a => a.GetText()));
     }
 
-    public sealed class AsPatternNode : PatternNode
+    public sealed class PatternAsNode : PatternNode
     {
         [JsonIgnore]
         public PatternNode Pattern => this.Children[0].As<PatternNode>();
@@ -87,7 +87,7 @@ namespace LINVAST.Imperative.Nodes
         public IdNode Target => this.Children[1].As<IdNode>();
 
 
-        public AsPatternNode(int line, PatternNode pattern, IdNode target)
+        public PatternAsNode(int line, PatternNode pattern, IdNode target)
             : base(line, pattern, target) { }
 
 
@@ -130,7 +130,7 @@ namespace LINVAST.Imperative.Nodes
         OpenParen,
     }
 
-    public sealed class SequencePatternNode : PatternNode
+    public sealed class PatternSequenceNode : PatternNode
     {
         public SequencePatternKind Kind { get; }
 
@@ -138,7 +138,7 @@ namespace LINVAST.Imperative.Nodes
         public IEnumerable<PatternNode> Elements => this.Children.Cast<PatternNode>();
 
 
-        public SequencePatternNode(int line, SequencePatternKind kind, IEnumerable<PatternNode> elements)
+        public PatternSequenceNode(int line, SequencePatternKind kind, IEnumerable<PatternNode> elements)
             : base(line, elements)
         {
             this.Kind = kind;
@@ -153,10 +153,10 @@ namespace LINVAST.Imperative.Nodes
         }
 
         public override bool Equals([AllowNull] ASTNode other)
-            => base.Equals(other) && this.Kind == ((SequencePatternNode)other!).Kind;
+            => base.Equals(other) && this.Kind == ((PatternSequenceNode)other!).Kind;
     }
 
-    public sealed class StarPatternNode : PatternNode
+    public sealed class PatternStarNode : PatternNode
     {
         public bool IsWildcard { get; }
 
@@ -164,13 +164,13 @@ namespace LINVAST.Imperative.Nodes
         public IdNode? Target => this.IsWildcard ? null : this.Children[0].As<IdNode>();
 
 
-        public StarPatternNode(int line, IdNode target)
+        public PatternStarNode(int line, IdNode target)
             : base(line, target)
         {
             this.IsWildcard = false;
         }
 
-        public StarPatternNode(int line, WildcardPatternNode wildcard)
+        public PatternStarNode(int line, PatternWildcardNode wildcard)
             : base(line, wildcard)
         {
             this.IsWildcard = true;
@@ -181,7 +181,7 @@ namespace LINVAST.Imperative.Nodes
             => this.IsWildcard ? "*_" : $"*{this.Target!.GetText()}";
     }
 
-    public sealed class KeyValuePatternNode : PatternNode
+    public sealed class PatternKeyValueNode : PatternNode
     {
         [JsonIgnore]
         public ExprNode Key => this.Children[0].As<ExprNode>();
@@ -190,41 +190,41 @@ namespace LINVAST.Imperative.Nodes
         public PatternNode Value => this.Children[1].As<PatternNode>();
 
 
-        public KeyValuePatternNode(int line, ExprNode key, PatternNode value)
+        public PatternKeyValueNode(int line, ExprNode key, PatternNode value)
             : base(line, key, value) { }
 
 
         public override string GetText() => $"{this.Key.GetText()}: {this.Value.GetText()}";
     }
 
-    public sealed class DoubleStarPatternNode : PatternNode
+    public sealed class PatternDoubleStarNode : PatternNode
     {
         [JsonIgnore]
         public IdNode Target => this.Children[0].As<IdNode>();
 
 
-        public DoubleStarPatternNode(int line, IdNode target)
+        public PatternDoubleStarNode(int line, IdNode target)
             : base(line, target) { }
 
 
         public override string GetText() => $"**{this.Target.GetText()}";
     }
 
-    public sealed class MappingPatternNode : PatternNode
+    public sealed class PatternMappingNode : PatternNode
     {
         public int ItemCount { get; }
         public bool HasRest { get; }
 
         [JsonIgnore]
-        public IEnumerable<KeyValuePatternNode> Items =>
-            this.Children.Take(this.ItemCount).Cast<KeyValuePatternNode>();
+        public IEnumerable<PatternKeyValueNode> Items =>
+            this.Children.Take(this.ItemCount).Cast<PatternKeyValueNode>();
 
         [JsonIgnore]
-        public DoubleStarPatternNode? Rest =>
-            this.HasRest ? this.Children[this.ItemCount].As<DoubleStarPatternNode>() : null;
+        public PatternDoubleStarNode? Rest =>
+            this.HasRest ? this.Children[this.ItemCount].As<PatternDoubleStarNode>() : null;
 
 
-        public MappingPatternNode(int line, KeyValuePatternNode[] items, DoubleStarPatternNode? rest)
+        public PatternMappingNode(int line, PatternKeyValueNode[] items, PatternDoubleStarNode? rest)
             : base(line, AssembleChildren(items, rest))
         {
             this.ItemCount = items.Length;
@@ -241,7 +241,7 @@ namespace LINVAST.Imperative.Nodes
         }
 
 
-        private static ASTNode[] AssembleChildren(KeyValuePatternNode[] items, DoubleStarPatternNode? rest)
+        private static ASTNode[] AssembleChildren(PatternKeyValueNode[] items, PatternDoubleStarNode? rest)
         {
             var children = new List<ASTNode>(items);
             if (rest is not null)
@@ -250,7 +250,7 @@ namespace LINVAST.Imperative.Nodes
         }
     }
 
-    public sealed class KeywordPatternNode : PatternNode
+    public sealed class PatternKeywordNode : PatternNode
     {
         [JsonIgnore]
         public IdNode Name => this.Children[0].As<IdNode>();
@@ -259,14 +259,14 @@ namespace LINVAST.Imperative.Nodes
         public PatternNode Pattern => this.Children[1].As<PatternNode>();
 
 
-        public KeywordPatternNode(int line, IdNode name, PatternNode pattern)
+        public PatternKeywordNode(int line, IdNode name, PatternNode pattern)
             : base(line, name, pattern) { }
 
 
         public override string GetText() => $"{this.Name.GetText()}={this.Pattern.GetText()}";
     }
 
-    public sealed class ClassPatternNode : PatternNode
+    public sealed class PatternClassNode : PatternNode
     {
         public int PositionalPatternCount { get; }
         public bool HasKeywordPatterns { get; }
@@ -279,15 +279,15 @@ namespace LINVAST.Imperative.Nodes
             this.Children.Skip(1).Take(this.PositionalPatternCount).Cast<PatternNode>();
 
         [JsonIgnore]
-        public IEnumerable<KeywordPatternNode> KeywordPatterns =>
-            this.Children.Skip(1 + this.PositionalPatternCount).Cast<KeywordPatternNode>();
+        public IEnumerable<PatternKeywordNode> KeywordPatterns =>
+            this.Children.Skip(1 + this.PositionalPatternCount).Cast<PatternKeywordNode>();
 
 
-        public ClassPatternNode(
+        public PatternClassNode(
             int line,
             IdNode className,
             PatternNode[] positionalPatterns,
-            KeywordPatternNode[] keywordPatterns)
+            PatternKeywordNode[] keywordPatterns)
             : base(line, AssembleChildren(className, positionalPatterns, keywordPatterns))
         {
             this.PositionalPatternCount = positionalPatterns.Length;
@@ -306,7 +306,7 @@ namespace LINVAST.Imperative.Nodes
         private static ASTNode[] AssembleChildren(
             IdNode className,
             PatternNode[] positionalPatterns,
-            KeywordPatternNode[] keywordPatterns)
+            PatternKeywordNode[] keywordPatterns)
         {
             var children = new List<ASTNode> { className };
             children.AddRange(positionalPatterns);

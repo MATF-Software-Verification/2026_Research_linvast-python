@@ -287,7 +287,7 @@ namespace LINVAST.Imperative.Builders.Python
         {
             PatternNode pattern = this.Visit(ctx.or_pattern()).As<PatternNode>();
             IdNode target = this.Visit(ctx.pattern_capture_target()).As<IdNode>();
-            return new AsPatternNode(ctx.Start.Line, pattern, target);
+            return new PatternAsNode(ctx.Start.Line, pattern, target);
         }
 
         // pattern: as_pattern | or_pattern
@@ -308,7 +308,7 @@ namespace LINVAST.Imperative.Builders.Python
 
             return alternatives.Length == 1
                 ? alternatives[0]
-                : new OrPatternNode(ctx.Start.Line, alternatives);
+                : new PatternOrNode(ctx.Start.Line, alternatives);
         }
 
         // closed_pattern: literal_pattern | capture_pattern | wildcard_pattern | value_pattern | group_pattern | sequence_pattern | mapping_pattern | class_pattern
@@ -338,7 +338,7 @@ namespace LINVAST.Imperative.Builders.Python
         public override ASTNode VisitLiteral_pattern(Python3Parser.Literal_patternContext ctx)
         {
             ExprNode value = this.BuildLiteralValue(ctx);
-            return new LiteralPatternNode(ctx.Start.Line, value);
+            return new PatternLiteralNode(ctx.Start.Line, value);
         }
 
         // literal_expr: signed_number | complex_number | strings | 'None' | 'True' | 'False'
@@ -391,9 +391,9 @@ namespace LINVAST.Imperative.Builders.Python
         {
             IdNode target = this.Visit(ctx.pattern_capture_target()).As<IdNode>();
             if (target.Identifier == "_")
-                return new WildcardPatternNode(ctx.Start.Line);
+                return new PatternWildcardNode(ctx.Start.Line);
 
-            return new CapturePatternNode(ctx.Start.Line, target);
+            return new PatternCaptureNode(ctx.Start.Line, target);
         }
 
         // pattern_capture_target: name
@@ -402,13 +402,13 @@ namespace LINVAST.Imperative.Builders.Python
 
         // wildcard_pattern: '_'
         public override ASTNode VisitWildcard_pattern(Python3Parser.Wildcard_patternContext ctx) =>
-            new WildcardPatternNode(ctx.Start.Line);
+            new PatternWildcardNode(ctx.Start.Line);
 
         // value_pattern: attr
         public override ASTNode VisitValue_pattern(Python3Parser.Value_patternContext ctx)
         {
             IdNode value = this.Visit(ctx.attr()).As<IdNode>();
-            return new ValuePatternNode(ctx.Start.Line, value);
+            return new PatternValueNode(ctx.Start.Line, value);
         }
 
         // attr: name ('.' name)+
@@ -436,28 +436,28 @@ namespace LINVAST.Imperative.Builders.Python
                 PatternNode[] elements = ctx.maybe_sequence_pattern() is null
                     ? System.Array.Empty<PatternNode>()
                     : this.ParseMaybeSequencePattern(ctx.maybe_sequence_pattern());
-                return new SequencePatternNode(ctx.Start.Line, SequencePatternKind.Bracket, elements);
+                return new PatternSequenceNode(ctx.Start.Line, SequencePatternKind.Bracket, elements);
             }
 
             if (ctx.open_sequence_pattern() is null)
-                return new SequencePatternNode(ctx.Start.Line, SequencePatternKind.Paren, System.Array.Empty<PatternNode>());
+                return new PatternSequenceNode(ctx.Start.Line, SequencePatternKind.Paren, System.Array.Empty<PatternNode>());
 
             PatternNode[] openElements = this.ParseOpenSequencePattern(ctx.open_sequence_pattern());
-            return new SequencePatternNode(ctx.Start.Line, SequencePatternKind.OpenParen, openElements);
+            return new PatternSequenceNode(ctx.Start.Line, SequencePatternKind.OpenParen, openElements);
         }
 
         // open_sequence_pattern: maybe_star_pattern ',' maybe_sequence_pattern?
         public override ASTNode VisitOpen_sequence_pattern(Python3Parser.Open_sequence_patternContext ctx)
         {
             PatternNode[] elements = this.ParseOpenSequencePattern(ctx);
-            return new SequencePatternNode(ctx.Start.Line, SequencePatternKind.OpenParen, elements);
+            return new PatternSequenceNode(ctx.Start.Line, SequencePatternKind.OpenParen, elements);
         }
 
         // maybe_sequence_pattern: maybe_star_pattern (',' maybe_star_pattern)* ','?
         public override ASTNode VisitMaybe_sequence_pattern(Python3Parser.Maybe_sequence_patternContext ctx)
         {
             PatternNode[] elements = this.ParseMaybeSequencePattern(ctx);
-            return new SequencePatternNode(ctx.Start.Line, SequencePatternKind.Bracket, elements);
+            return new PatternSequenceNode(ctx.Start.Line, SequencePatternKind.Bracket, elements);
         }
 
         // maybe_star_pattern: star_pattern | pattern
@@ -473,36 +473,36 @@ namespace LINVAST.Imperative.Builders.Python
         public override ASTNode VisitStar_pattern(Python3Parser.Star_patternContext ctx)
         {
             if (ctx.wildcard_pattern() is not null) {
-                WildcardPatternNode wildcard = this.Visit(ctx.wildcard_pattern()).As<WildcardPatternNode>();
-                return new StarPatternNode(ctx.Start.Line, wildcard);
+                PatternWildcardNode wildcard = this.Visit(ctx.wildcard_pattern()).As<PatternWildcardNode>();
+                return new PatternStarNode(ctx.Start.Line, wildcard);
             }
 
             IdNode target = this.Visit(ctx.pattern_capture_target()).As<IdNode>();
             if (target.Identifier == "_")
-                return new StarPatternNode(ctx.Start.Line, new WildcardPatternNode(ctx.Start.Line));
+                return new PatternStarNode(ctx.Start.Line, new PatternWildcardNode(ctx.Start.Line));
 
-            return new StarPatternNode(ctx.Start.Line, target);
+            return new PatternStarNode(ctx.Start.Line, target);
         }
 
         // mapping_pattern: '{' ... '}'
         public override ASTNode VisitMapping_pattern(Python3Parser.Mapping_patternContext ctx)
         {
-            KeyValuePatternNode[] items = ctx.items_pattern() is null
-                ? System.Array.Empty<KeyValuePatternNode>()
+            PatternKeyValueNode[] items = ctx.items_pattern() is null
+                ? System.Array.Empty<PatternKeyValueNode>()
                 : this.ParseItemsPattern(ctx.items_pattern());
 
-            DoubleStarPatternNode? rest = ctx.double_star_pattern() is null
+            PatternDoubleStarNode? rest = ctx.double_star_pattern() is null
                 ? null
-                : this.Visit(ctx.double_star_pattern()).As<DoubleStarPatternNode>();
+                : this.Visit(ctx.double_star_pattern()).As<PatternDoubleStarNode>();
 
-            return new MappingPatternNode(ctx.Start.Line, items, rest);
+            return new PatternMappingNode(ctx.Start.Line, items, rest);
         }
 
         // items_pattern: key_value_pattern (',' key_value_pattern)*
         public override ASTNode VisitItems_pattern(Python3Parser.Items_patternContext ctx)
         {
-            KeyValuePatternNode[] items = this.ParseItemsPattern(ctx);
-            return new MappingPatternNode(ctx.Start.Line, items, null);
+            PatternKeyValueNode[] items = this.ParseItemsPattern(ctx);
+            return new PatternMappingNode(ctx.Start.Line, items, null);
         }
 
         // key_value_pattern: (literal_expr | attr) ':' pattern
@@ -512,14 +512,14 @@ namespace LINVAST.Imperative.Builders.Python
                 ? this.BuildLiteralValue(ctx.literal_expr())
                 : this.Visit(ctx.attr()).As<ExprNode>();
             PatternNode value = this.Visit(ctx.pattern()).As<PatternNode>();
-            return new KeyValuePatternNode(ctx.Start.Line, key, value);
+            return new PatternKeyValueNode(ctx.Start.Line, key, value);
         }
 
         // double_star_pattern: '**' pattern_capture_target
         public override ASTNode VisitDouble_star_pattern(Python3Parser.Double_star_patternContext ctx)
         {
             IdNode target = this.Visit(ctx.pattern_capture_target()).As<IdNode>();
-            return new DoubleStarPatternNode(ctx.Start.Line, target);
+            return new PatternDoubleStarNode(ctx.Start.Line, target);
         }
 
         // class_pattern: name_or_attr '(' ... ')'
@@ -529,11 +529,11 @@ namespace LINVAST.Imperative.Builders.Python
             PatternNode[] positional = ctx.positional_patterns() is null
                 ? System.Array.Empty<PatternNode>()
                 : this.ParsePositionalPatterns(ctx.positional_patterns());
-            KeywordPatternNode[] keywords = ctx.keyword_patterns() is null
-                ? System.Array.Empty<KeywordPatternNode>()
+            PatternKeywordNode[] keywords = ctx.keyword_patterns() is null
+                ? System.Array.Empty<PatternKeywordNode>()
                 : this.ParseKeywordPatterns(ctx.keyword_patterns());
 
-            return new ClassPatternNode(ctx.Start.Line, className, positional, keywords);
+            return new PatternClassNode(ctx.Start.Line, className, positional, keywords);
         }
 
         // positional_patterns: pattern (',' pattern)*
@@ -546,7 +546,7 @@ namespace LINVAST.Imperative.Builders.Python
         // keyword_patterns: keyword_pattern (',' keyword_pattern)*
         public override ASTNode VisitKeyword_patterns(Python3Parser.Keyword_patternsContext ctx)
         {
-            KeywordPatternNode[] patterns = this.ParseKeywordPatterns(ctx);
+            PatternKeywordNode[] patterns = this.ParseKeywordPatterns(ctx);
             return new PatternListNode(ctx.Start.Line, patterns);
         }
 
@@ -555,7 +555,7 @@ namespace LINVAST.Imperative.Builders.Python
         {
             IdNode name = this.Visit(ctx.name()).As<IdNode>();
             PatternNode pattern = this.Visit(ctx.pattern()).As<PatternNode>();
-            return new KeywordPatternNode(ctx.Start.Line, name, pattern);
+            return new PatternKeywordNode(ctx.Start.Line, name, pattern);
         }
 
 
@@ -652,9 +652,9 @@ namespace LINVAST.Imperative.Builders.Python
             return elements.ToArray();
         }
 
-        private KeyValuePatternNode[] ParseItemsPattern(Python3Parser.Items_patternContext ctx) =>
+        private PatternKeyValueNode[] ParseItemsPattern(Python3Parser.Items_patternContext ctx) =>
             ctx.key_value_pattern()
-                .Select(item => this.Visit(item).As<KeyValuePatternNode>())
+                .Select(item => this.Visit(item).As<PatternKeyValueNode>())
                 .ToArray();
 
         private PatternNode[] ParsePositionalPatterns(Python3Parser.Positional_patternsContext ctx) =>
@@ -662,9 +662,9 @@ namespace LINVAST.Imperative.Builders.Python
                 .Select(pattern => this.Visit(pattern).As<PatternNode>())
                 .ToArray();
 
-        private KeywordPatternNode[] ParseKeywordPatterns(Python3Parser.Keyword_patternsContext ctx) =>
+        private PatternKeywordNode[] ParseKeywordPatterns(Python3Parser.Keyword_patternsContext ctx) =>
             ctx.keyword_pattern()
-                .Select(keyword => this.Visit(keyword).As<KeywordPatternNode>())
+                .Select(keyword => this.Visit(keyword).As<PatternKeywordNode>())
                 .ToArray();
     }
 }

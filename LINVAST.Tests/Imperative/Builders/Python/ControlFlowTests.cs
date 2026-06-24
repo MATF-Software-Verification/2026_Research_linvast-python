@@ -115,7 +115,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(matchStatement.Cases.Count(), Is.EqualTo(1));
 
             CaseNode caseNode = matchStatement.Cases.Single();
-            Assert.That(caseNode.Pattern, Is.TypeOf<LiteralPatternNode>());
+            Assert.That(caseNode.Pattern, Is.TypeOf<PatternLiteralNode>());
             Assert.That(caseNode.Guard, Is.Null);
             Assert.That(caseNode.Body.As<BlockStatNode>().Children.Single(), Is.TypeOf<EmptyStatNode>());
         }
@@ -137,29 +137,29 @@ namespace LINVAST.Tests.Imperative.Builders.Python
                 "match x:\n    case 1:\n        pass\n    case _:\n        pass\n").As<MatchStatNode>();
 
             Assert.That(matchStatement.Cases.Count(), Is.EqualTo(2));
-            Assert.That(matchStatement.Cases.First().Pattern, Is.TypeOf<LiteralPatternNode>());
-            Assert.That(matchStatement.Cases.Last().Pattern, Is.TypeOf<WildcardPatternNode>());
+            Assert.That(matchStatement.Cases.First().Pattern, Is.TypeOf<PatternLiteralNode>());
+            Assert.That(matchStatement.Cases.Last().Pattern, Is.TypeOf<PatternWildcardNode>());
         }
 
         [Test]
-        public void MatchAsPatternBuildsAsPatternNode()
+        public void MatchAsPatternBuildsPatternAsNode()
         {
             var matchStatement = this.ParseStatement(
                 "match x:\n    case [1, 2] as pair:\n        pass\n").As<MatchStatNode>();
 
-            Assert.That(matchStatement.Cases.Single().Pattern, Is.TypeOf<AsPatternNode>());
-            Assert.That(matchStatement.Cases.Single().Pattern.As<AsPatternNode>().Target.Identifier, Is.EqualTo("pair"));
+            Assert.That(matchStatement.Cases.Single().Pattern, Is.TypeOf<PatternAsNode>());
+            Assert.That(matchStatement.Cases.Single().Pattern.As<PatternAsNode>().Target.Identifier, Is.EqualTo("pair"));
         }
 
         [Test]
-        public void MatchOpenSequencePatternCaseBuildsSequencePatternNode()
+        public void MatchOpenSequencePatternCaseBuildsPatternSequenceNode()
         {
             var matchStatement = this.ParseStatement(
                 "match x:\n    case 1, 2:\n        pass\n").As<MatchStatNode>();
 
-            Assert.That(matchStatement.Cases.Single().Pattern, Is.TypeOf<SequencePatternNode>());
+            Assert.That(matchStatement.Cases.Single().Pattern, Is.TypeOf<PatternSequenceNode>());
             Assert.That(
-                matchStatement.Cases.Single().Pattern.As<SequencePatternNode>().Kind,
+                matchStatement.Cases.Single().Pattern.As<PatternSequenceNode>().Kind,
                 Is.EqualTo(SequencePatternKind.OpenParen));
         }
 

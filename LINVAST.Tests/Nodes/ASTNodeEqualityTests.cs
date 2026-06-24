@@ -1,4 +1,4 @@
-﻿using LINVAST.Imperative.Nodes;
+using LINVAST.Imperative.Nodes;
 using LINVAST.Nodes;
 using NUnit.Framework;
 
@@ -644,16 +644,16 @@ namespace LINVAST.Tests.Nodes
         [Test]
         public void SequencePatternEqualityTest()
         {
-            ASTNode ast1 = new SequencePatternNode(1, SequencePatternKind.Bracket, new PatternNode[] { new CapturePatternNode(1, new IdNode(1, "x")) });
-            ASTNode ast2 = new SequencePatternNode(2, SequencePatternKind.Bracket, new PatternNode[] { new CapturePatternNode(2, new IdNode(2, "x")) });
+            ASTNode ast1 = new PatternSequenceNode(1, SequencePatternKind.Bracket, new PatternNode[] { new PatternCaptureNode(1, new IdNode(1, "x")) });
+            ASTNode ast2 = new PatternSequenceNode(2, SequencePatternKind.Bracket, new PatternNode[] { new PatternCaptureNode(2, new IdNode(2, "x")) });
             AssertNodes(ast1, ast2, eq: true);
         }
 
         [Test]
         public void SequencePatternKindDifferenceTest()
         {
-            ASTNode ast1 = new SequencePatternNode(1, SequencePatternKind.Bracket, new PatternNode[] { new CapturePatternNode(1, new IdNode(1, "x")) });
-            ASTNode ast2 = new SequencePatternNode(1, SequencePatternKind.Paren, new PatternNode[] { new CapturePatternNode(1, new IdNode(1, "x")) });
+            ASTNode ast1 = new PatternSequenceNode(1, SequencePatternKind.Bracket, new PatternNode[] { new PatternCaptureNode(1, new IdNode(1, "x")) });
+            ASTNode ast2 = new PatternSequenceNode(1, SequencePatternKind.Paren, new PatternNode[] { new PatternCaptureNode(1, new IdNode(1, "x")) });
             AssertNodes(ast1, ast2, eq: false);
         }
 
