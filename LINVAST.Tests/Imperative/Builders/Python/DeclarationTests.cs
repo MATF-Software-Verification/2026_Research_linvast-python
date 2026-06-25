@@ -35,7 +35,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             var stat = this.ParseSingle<ExprStatNode>("arr[0]: int = 42\n");
 
             Assert.That(stat.Expression, Is.TypeOf<AssignExprNode>());
-            Assert.That(stat.Expression.As<AssignExprNode>().RightOperand.As<LitExprNode>().Value, Is.EqualTo("42"));
+            Assert.That(stat.Expression.As<AssignExprNode>().RightOperand.As<LitExprNode>().Value, Is.EqualTo(42));
         }
 
         [Test]
