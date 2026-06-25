@@ -188,5 +188,22 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(varDecls[1].As<VarDeclNode>().Identifier, Is.EqualTo("b"));
             Assert.That(varDecls[1].As<VarDeclNode>().Initializer!.As<LitExprNode>().Value, Is.EqualTo(2));
         }
+
+        [Test]
+        public void TupleUnpackingInList()
+        {
+            var forStat = this.ParseSingle<ForStatNode>("for a, b in pairs:\n    pass\n");
+
+            Assert.That(forStat.ForDeclaration, Is.TypeOf<DeclListNode>());
+
+            Assert.That(
+                forStat.ForDeclaration!.As<DeclListNode>().Declarators.Select(decl => decl.As<VarDeclNode>().Identifier),
+                Is.EqualTo(new[] { "a", "b" }));
+
+            Assert.That(forStat.Condition, Is.TypeOf<IdNode>());
+            Assert.That(forStat.Condition.As<IdNode>().Identifier, Is.EqualTo("pairs"));
+
+            Assert.That(forStat.Statement.As<BlockStatNode>().Children.Single(), Is.TypeOf<EmptyStatNode>());
+        }
     }
 }
