@@ -68,24 +68,33 @@ namespace LINVAST.Imperative.Builders.Python
                 return first;
 
             Python3Parser.Comp_opContext[] ops = ctx.comp_op();
-            if (exprs.Length == 2 && ops.Length == 1) {
-                RelOpNode op = this.CreateRelOp(ctx.Start.Line, ops[0]);
-                ExprNode second = this.Visit(exprs[1]).As<ExprNode>();
-                return new RelExprNode(ctx.Start.Line, first, op, second);
-            }
+
+            // Visit each operand exactly once. A chained comparison such as
+            // `a < f() < b` desugars into `a < f() and f() < b`, but Python
+            // evaluates the shared middle operand only once. By building every
+            // operand a single time and reusing the same node instance for the
+            // two comparisons it participates in, the produced AST references
+            // `f()` once instead of duplicating (and thus re-evaluating) it.
+            var operands = new ExprNode[exprs.Length];
+            operands[0] = first;
+            for (int i = 1; i < exprs.Length; i++)
+                operands[i] = this.Visit(exprs[i]).As<ExprNode>();
+
+            if (ops.Length == 1)
+                return new RelExprNode(ctx.Start.Line, operands[0], this.CreateRelOp(ctx.Start.Line, ops[0]), operands[1]);
 
             ExprNode result = new RelExprNode(
-                ctx.Start.Line,
-                first,
+                exprs[0].Start.Line,
+                operands[0],
                 this.CreateRelOp(exprs[0].Start.Line, ops[0]),
-                this.Visit(exprs[1]).As<ExprNode>());
+                operands[1]);
 
             for (int i = 1; i < ops.Length; i++) {
                 var comparison = new RelExprNode(
                     exprs[i].Start.Line,
-                    this.Visit(exprs[i]).As<ExprNode>(),
+                    operands[i],
                     this.CreateRelOp(exprs[i].Start.Line, ops[i]),
-                    this.Visit(exprs[i + 1]).As<ExprNode>());
+                    operands[i + 1]);
                 result = new LogicExprNode(
                     ctx.Start.Line,
                     result,
@@ -138,15 +147,19 @@ namespace LINVAST.Imperative.Builders.Python
         // atom_expr: AWAIT? atom trailer*
         public override ASTNode VisitAtom_expr(Python3Parser.Atom_exprContext ctx)
         {
-            if (ctx.AWAIT() is not null)
-                throw new NotImplementedException("await expressions");
-
             ExprNode expr = this.Visit(ctx.atom()).As<ExprNode>();
-            if (ctx.trailer() is null)
-                return expr;
+            if (ctx.trailer() is not null) {
+                foreach (Python3Parser.TrailerContext trailer in ctx.trailer())
+                    expr = this.ApplyTrailer(expr, trailer);
+            }
 
-            foreach (Python3Parser.TrailerContext trailer in ctx.trailer())
-                expr = this.ApplyTrailer(expr, trailer);
+            // `await x` is represented as a call to the synthetic `await` builtin,
+            // mirroring how other Python-specific expressions are lowered.
+            if (ctx.AWAIT() is not null)
+                return new FuncCallExprNode(
+                    ctx.Start.Line,
+                    new IdNode(ctx.Start.Line, "await"),
+                    new ExprListNode(ctx.Start.Line, expr));
 
             return expr;
         }
@@ -163,8 +176,11 @@ namespace LINVAST.Imperative.Builders.Python
             }
 
             if (ctx.OPEN_BRACK() is not null) {
-                if (ctx.testlist_comp() is not null)
-                    return this.Visit(ctx.testlist_comp());
+                if (ctx.testlist_comp() is not null) {
+                    return ctx.testlist_comp().comp_for() is not null
+                        ? this.BuildComprehension(ctx.testlist_comp(), "list")
+                        : this.Visit(ctx.testlist_comp());
+                }
                 return new ArrInitExprNode(ctx.Start.Line);
             }
 
@@ -249,8 +265,10 @@ namespace LINVAST.Imperative.Builders.Python
         // testlist_comp: (test | star_expr) (comp_for | (',' (test | star_expr))* ','?)
         public override ASTNode VisitTestlist_comp(Python3Parser.Testlist_compContext ctx)
         {
+            // A bare testlist_comp wrapped in parentheses (or used directly) is a
+            // generator expression; bracketed list comprehensions are handled in VisitAtom.
             if (ctx.comp_for() is not null)
-                throw new NotImplementedException("comprehensions");
+                return this.BuildComprehension(ctx, "generator");
 
             return this.VisitExpressionSequence(ctx);
         }
@@ -258,8 +276,20 @@ namespace LINVAST.Imperative.Builders.Python
         // dictorsetmaker: dict literal | set literal (+ optional comprehension)
         public override ASTNode VisitDictorsetmaker(Python3Parser.DictorsetmakerContext ctx)
         {
-            if (ctx.comp_for() is not null)
-                throw new NotImplementedException("dict/set comprehensions");
+            if (ctx.comp_for() is not null) {
+                if (ctx.COLON() is { Length: > 0 }) {
+                    DictEntryNode entry = this.CreateDictEntry(
+                        ctx.Start.Line,
+                        this.Visit(ctx.test(0)).As<ExprNode>(),
+                        this.Visit(ctx.test(1)).As<ExprNode>());
+                    return this.BuildComprehension(ctx.Start.Line, "dict", entry, ctx.comp_for());
+                }
+
+                ExprNode element = ctx.test().Length > 0
+                    ? this.Visit(ctx.test(0)).As<ExprNode>()
+                    : this.Visit(ctx.star_expr(0)).As<ExprNode>();
+                return this.BuildComprehension(ctx.Start.Line, "set", element, ctx.comp_for());
+            }
 
             if (ctx.COLON() is { Length: > 0 } || ctx.POWER() is { Length: > 0 }) {
                 var entries = new List<DictEntryNode>();
@@ -291,8 +321,11 @@ namespace LINVAST.Imperative.Builders.Python
         // argument: test comp_for? | test '=' test | '**' test | '*' test
         public override ASTNode VisitArgument(Python3Parser.ArgumentContext ctx)
         {
-            if (ctx.comp_for() is not null)
-                throw new NotImplementedException("comprehensions in arguments");
+            // `f(x for x in xs)` is a generator expression passed as the argument.
+            if (ctx.comp_for() is not null) {
+                ExprNode element = this.Visit(ctx.test(0)).As<ExprNode>();
+                return this.BuildComprehension(ctx.Start.Line, "generator", element, ctx.comp_for());
+            }
 
             if (ctx.POWER() is not null) {
                 ExprNode value = this.Visit(ctx.test()[0]).As<ExprNode>();
@@ -315,15 +348,22 @@ namespace LINVAST.Imperative.Builders.Python
 
         // comp_iter: comp_for | comp_if
         public override ASTNode VisitComp_iter(Python3Parser.Comp_iterContext ctx) =>
-            throw new NotImplementedException("comp_iter");
+            ctx.comp_for() is not null
+                ? this.Visit(ctx.comp_for())
+                : this.Visit(ctx.comp_if());
 
         // comp_for: ASYNC? 'for' exprlist 'in' or_test comp_iter?
         public override ASTNode VisitComp_for(Python3Parser.Comp_forContext ctx) =>
-            throw new NotImplementedException("comp_for");
+            new ExprListNode(ctx.Start.Line, this.CollectComprehensionClauses(ctx));
 
         // comp_if: 'if' test_nocond comp_iter?
-        public override ASTNode VisitComp_if(Python3Parser.Comp_ifContext ctx) =>
-            throw new NotImplementedException("comp_if");
+        public override ASTNode VisitComp_if(Python3Parser.Comp_ifContext ctx)
+        {
+            var clauses = new List<ExprNode>();
+            Python3Parser.Comp_iterContext? next = this.AddIfClause(clauses, ctx);
+            this.CollectClausesFromIter(clauses, next);
+            return new ExprListNode(ctx.Start.Line, clauses);
+        }
 
         // yield_expr: 'yield' yield_arg?
         public override ASTNode VisitYield_expr(Python3Parser.Yield_exprContext ctx)
@@ -478,10 +518,100 @@ namespace LINVAST.Imperative.Builders.Python
 
         private ExprNode VisitSubscriptIndex(Python3Parser.Subscript_Context ctx)
         {
+            // subscript_: test | test? ':' test? sliceop?
             if (ctx.COLON() is null)
                 return this.Visit(ctx.test(0)).As<ExprNode>();
 
-            return new LitExprNode(ctx.Start.Line, ctx.GetText());
+            // A slice such as a[start:stop:step] is lowered to a call to the
+            // synthetic `slice` builtin, mirroring Python's slice(start, stop, step).
+            // Omitted bounds are represented by null literals (Python's None).
+            int line = ctx.Start.Line;
+            ExprNode? start = null;
+            ExprNode? stop = null;
+            ExprNode? step = null;
+            bool afterColon = false;
+            foreach (IParseTree child in ctx.children) {
+                switch (child) {
+                    case ITerminalNode term when term.Symbol.Type == Python3Parser.COLON:
+                        afterColon = true;
+                        break;
+                    case Python3Parser.TestContext test when !afterColon:
+                        start = this.Visit(test).As<ExprNode>();
+                        break;
+                    case Python3Parser.TestContext test:
+                        stop = this.Visit(test).As<ExprNode>();
+                        break;
+                    case Python3Parser.SliceopContext sliceop:
+                        step = sliceop.test() is null ? null : this.Visit(sliceop.test()).As<ExprNode>();
+                        break;
+                }
+            }
+
+            var args = new ExprListNode(line, new ExprNode[] {
+                start ?? new NullLitExprNode(line),
+                stop ?? new NullLitExprNode(line),
+                step ?? new NullLitExprNode(line),
+            });
+            return new FuncCallExprNode(line, new IdNode(line, "slice"), args);
+        }
+
+        // Builds a comprehension/generator from a testlist_comp whose element
+        // precedes the comp_for clause (list, set and generator forms).
+        private ASTNode BuildComprehension(Python3Parser.Testlist_compContext ctx, string kind)
+        {
+            ExprNode element = ctx.test().Length > 0
+                ? this.Visit(ctx.test(0)).As<ExprNode>()
+                : this.Visit(ctx.star_expr(0)).As<ExprNode>();
+            return this.BuildComprehension(ctx.Start.Line, kind, element, ctx.comp_for());
+        }
+
+        // Represents a comprehension as a synthetic call: <kind>(element, clauses...)
+        // where each clause is itself a call (for/async_for/if). This keeps the
+        // builder consistent with how other Python-specific constructs are lowered.
+        private ASTNode BuildComprehension(int line, string kind, ExprNode element, Python3Parser.Comp_forContext compFor)
+        {
+            var args = new List<ExprNode> { element };
+            args.AddRange(this.CollectComprehensionClauses(compFor));
+            return new FuncCallExprNode(line, new IdNode(line, kind), new ExprListNode(line, args));
+        }
+
+        private List<ExprNode> CollectComprehensionClauses(Python3Parser.Comp_forContext compFor)
+        {
+            var clauses = new List<ExprNode>();
+            Python3Parser.Comp_iterContext? next = this.AddForClause(clauses, compFor);
+            this.CollectClausesFromIter(clauses, next);
+            return clauses;
+        }
+
+        private void CollectClausesFromIter(List<ExprNode> clauses, Python3Parser.Comp_iterContext? iter)
+        {
+            while (iter is not null) {
+                iter = iter.comp_for() is not null
+                    ? this.AddForClause(clauses, iter.comp_for())
+                    : this.AddIfClause(clauses, iter.comp_if());
+            }
+        }
+
+        private Python3Parser.Comp_iterContext? AddForClause(List<ExprNode> clauses, Python3Parser.Comp_forContext ctx)
+        {
+            ExprNode targets = this.Visit(ctx.exprlist()).As<ExprNode>();
+            ExprNode iterable = this.Visit(ctx.or_test()).As<ExprNode>();
+            string id = ctx.ASYNC() is not null ? "async_for" : "for";
+            clauses.Add(new FuncCallExprNode(
+                ctx.Start.Line,
+                new IdNode(ctx.Start.Line, id),
+                new ExprListNode(ctx.Start.Line, new[] { targets, iterable })));
+            return ctx.comp_iter();
+        }
+
+        private Python3Parser.Comp_iterContext? AddIfClause(List<ExprNode> clauses, Python3Parser.Comp_ifContext ctx)
+        {
+            ExprNode cond = this.Visit(ctx.test_nocond()).As<ExprNode>();
+            clauses.Add(new FuncCallExprNode(
+                ctx.Start.Line,
+                new IdNode(ctx.Start.Line, "if"),
+                new ExprListNode(ctx.Start.Line, cond)));
+            return ctx.comp_iter();
         }
 
         private ASTNode VisitExpressionSequence(ParserRuleContext ctx)
