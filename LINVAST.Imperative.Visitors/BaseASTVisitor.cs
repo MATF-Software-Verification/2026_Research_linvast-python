@@ -36,8 +36,11 @@ namespace LINVAST.Imperative.Visitors
         public virtual TResult Visit(ArrInitExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(AssignExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(AssignOpNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(AsyncStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(BinaryLogicOpNode node) => this.VisitChildren(node);
         public virtual TResult Visit(BlockStatNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(CaseNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(CatchClauseNode node) => this.VisitChildren(node);
         public virtual TResult Visit(CondExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(DeclSpecsNode node) => this.VisitChildren(node);
         public virtual TResult Visit(DeclStatNode node) => this.VisitChildren(node);
@@ -66,16 +69,38 @@ namespace LINVAST.Imperative.Visitors
         public virtual TResult Visit(LambdaFuncExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(LitExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(LogicExprNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(MatchStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(NonlocalStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(NullLitExprNode node) => this.VisitChildren(node);
+        // Python-specific patterns
+        public virtual TResult Visit(PatternAsNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(PatternCaptureNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(PatternClassNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(PatternDoubleStarNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(PatternKeyValueNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(PatternKeywordNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(PatternListNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(PatternLiteralNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(PatternMappingNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(PatternOrNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(PatternSequenceNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(PatternStarNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(PatternValueNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(PatternWildcardNode node) => this.VisitChildren(node);
+
         public virtual TResult Visit(RelExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(RelOpNode node) => this.VisitChildren(node);
         public virtual TResult Visit(ThrowStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(SourceNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(TagNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(TryStatNode node) => this.VisitChildren(node);
         public virtual TResult Visit(UnaryExprNode node) => this.VisitChildren(node);
         public virtual TResult Visit(UnaryOpNode node) => this.VisitChildren(node);
         public virtual TResult Visit(VarDeclNode node) => this.VisitChildren(node);
         public virtual TResult Visit(WhileStatNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(WithStatNode node) => this.VisitChildren(node);
+        public virtual TResult Visit(YieldExprNode node) => this.VisitChildren(node);
+
 
         protected virtual TResult DefaultResult => default!;
         protected virtual TResult AggregateResult(TResult aggregate, TResult nextResult) => nextResult;

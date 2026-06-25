@@ -326,12 +326,25 @@ namespace LINVAST.Imperative.Builders.Python
             throw new NotImplementedException("comp_if");
 
         // yield_expr: 'yield' yield_arg?
-        public override ASTNode VisitYield_expr(Python3Parser.Yield_exprContext ctx) =>
-            throw new NotImplementedException("yield_expr");
+        public override ASTNode VisitYield_expr(Python3Parser.Yield_exprContext ctx)
+        {
+            if (ctx.yield_arg() is null)
+                return new YieldExprNode(ctx.Start.Line);
+
+            return this.Visit(ctx.yield_arg());
+        }
 
         // yield_arg: 'from' test | testlist
-        public override ASTNode VisitYield_arg(Python3Parser.Yield_argContext ctx) =>
-            throw new NotImplementedException("yield_arg");
+        public override ASTNode VisitYield_arg(Python3Parser.Yield_argContext ctx)
+        {
+            if (ctx.FROM() is not null) {
+                ExprNode value = this.Visit(ctx.test()).As<ExprNode>();
+                return new YieldExprNode(ctx.Start.Line, value, isDelegating: true);
+            }
+
+            ExprNode yielded = this.Visit(ctx.testlist()).As<ExprNode>();
+            return new YieldExprNode(ctx.Start.Line, yielded);
+        }
 
         // strings: STRING+
         public override ASTNode VisitStrings(Python3Parser.StringsContext ctx) =>
@@ -515,7 +528,7 @@ namespace LINVAST.Imperative.Builders.Python
         {
             text = text.Replace("_", string.Empty);
             if (text.EndsWith("j", StringComparison.OrdinalIgnoreCase))
-                throw new NotImplementedException("complex number literals");
+                return ParseImaginaryNumber(line, text);
 
             if (text.Contains('.') || text.Contains('e') || text.Contains('E'))
                 return new LitExprNode(line, double.Parse(text, CultureInfo.InvariantCulture));
@@ -528,6 +541,24 @@ namespace LINVAST.Imperative.Builders.Python
                 return new LitExprNode(line, Convert.ToInt64(text[2..], 2));
 
             return new LitExprNode(line, long.Parse(text, CultureInfo.InvariantCulture));
+        }
+
+        private static LitExprNode ParseImaginaryNumber(int line, string text)
+        {
+            text = text.Replace("_", string.Empty);
+            string magnitude = text[..^1];
+            if (magnitude is "+" or "-")
+                magnitude += "1";
+            double imaginary = double.Parse(magnitude, CultureInfo.InvariantCulture);
+            return new LitExprNode(line, new System.Numerics.Complex(0, imaginary));
+        }
+
+        private static System.Numerics.Complex ToComplex(LitExprNode literal)
+        {
+            if (literal.Value is System.Numerics.Complex complex)
+                return complex;
+
+            return new System.Numerics.Complex(Convert.ToDouble(literal.Value), 0);
         }
 
         private static bool IsFormatStringToken(string token)

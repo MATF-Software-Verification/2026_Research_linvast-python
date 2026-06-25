@@ -1,4 +1,4 @@
-﻿using LINVAST.Imperative.Nodes;
+using LINVAST.Imperative.Nodes;
 using LINVAST.Nodes;
 using NUnit.Framework;
 
@@ -685,6 +685,38 @@ namespace LINVAST.Tests.Nodes
         {
             ASTNode ast1 = new NonlocalStatNode(1, new IdNode(1, "x"));
             ASTNode ast2 = new NonlocalStatNode(5, new IdNode(5, "x"), new IdNode(5, "y"));
+            AssertNodes(ast1, ast2, eq: false);
+        }
+
+        [Test]
+        public void YieldExpressionEqualityTest()
+        {
+            ASTNode ast1 = new YieldExprNode(1, new LitExprNode(1, 1L));
+            ASTNode ast2 = new YieldExprNode(2, new LitExprNode(2, 1L));
+            AssertNodes(ast1, ast2, eq: true);
+        }
+
+        [Test]
+        public void YieldExpressionDelegationDifferenceTest()
+        {
+            ASTNode ast1 = new YieldExprNode(1, new LitExprNode(1, 1L), isDelegating: true);
+            ASTNode ast2 = new YieldExprNode(1, new LitExprNode(1, 1L), isDelegating: false);
+            AssertNodes(ast1, ast2, eq: false);
+        }
+
+        [Test]
+        public void SequencePatternEqualityTest()
+        {
+            ASTNode ast1 = new PatternSequenceNode(1, SequencePatternKind.Bracket, new PatternNode[] { new PatternCaptureNode(1, new IdNode(1, "x")) });
+            ASTNode ast2 = new PatternSequenceNode(2, SequencePatternKind.Bracket, new PatternNode[] { new PatternCaptureNode(2, new IdNode(2, "x")) });
+            AssertNodes(ast1, ast2, eq: true);
+        }
+
+        [Test]
+        public void SequencePatternKindDifferenceTest()
+        {
+            ASTNode ast1 = new PatternSequenceNode(1, SequencePatternKind.Bracket, new PatternNode[] { new PatternCaptureNode(1, new IdNode(1, "x")) });
+            ASTNode ast2 = new PatternSequenceNode(1, SequencePatternKind.Paren, new PatternNode[] { new PatternCaptureNode(1, new IdNode(1, "x")) });
             AssertNodes(ast1, ast2, eq: false);
         }
 

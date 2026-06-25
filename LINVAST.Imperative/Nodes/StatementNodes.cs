@@ -165,6 +165,169 @@ namespace LINVAST.Imperative.Nodes
             => $"if {this.Condition.GetText()} {this.ThenStat.GetText()} {(this.ElseStat is null ? "" : $"else {this.ElseStat.GetText()}")}";
     }
 
+    public sealed class WithStatNode : ComplexStatNode
+    {
+        [JsonIgnore]
+        public ExprNode ContextManager => this.Children[0].As<ExprNode>();
+
+        [JsonIgnore]
+        public ExprNode? Target => this.Children.ElementAtOrDefault(1) as ExprNode;
+
+        [JsonIgnore]
+        public StatNode Body => this.Children[this.Target is null ? 1 : 2].As<StatNode>();
+
+
+        public WithStatNode(int line, ExprNode contextManager, StatNode body)
+            : base(line, contextManager, body) { }
+
+        public WithStatNode(int line, ExprNode contextManager, ExprNode target, StatNode body)
+            : base(line, contextManager, target, body) { }
+
+
+        public override string GetText()
+        {
+            var sb = new StringBuilder("with ").Append(this.ContextManager.GetText());
+            if (this.Target is not null)
+                sb.Append(" as ").Append(this.Target.GetText());
+            sb.Append(' ').Append(this.Body.GetText());
+            return sb.ToString();
+        }
+    }
+
+    public sealed class CatchClauseNode : ASTNode
+    {
+        [JsonIgnore]
+        public ExprNode? ExceptionType => this.Children.Count >= 2 ? this.Children[0] as ExprNode : null;
+
+        [JsonIgnore]
+        public IdNode? Binding => this.Children.Count == 3 ? this.Children[1].As<IdNode>() : null;
+
+        [JsonIgnore]
+        public StatNode Body => this.Children[this.Children.Count - 1].As<StatNode>();
+
+
+        public CatchClauseNode(int line, StatNode body, ExprNode? exceptionType = null, IdNode? binding = null)
+            : base(line, BuildChildren(body, exceptionType, binding)) { }
+
+
+        public override string GetText()
+        {
+            var sb = new StringBuilder("except");
+            if (this.ExceptionType is not null)
+                sb.Append(' ').Append(this.ExceptionType.GetText());
+            if (this.Binding is not null)
+                sb.Append(" as ").Append(this.Binding.GetText());
+            sb.Append(' ').Append(this.Body.GetText());
+            return sb.ToString();
+        }
+
+
+        private static ASTNode[] BuildChildren(StatNode body, ExprNode? exceptionType, IdNode? binding)
+        {
+            if (exceptionType is null)
+                return new ASTNode[] { body };
+            if (binding is null)
+                return new ASTNode[] { exceptionType, body };
+            return new ASTNode[] { exceptionType, binding, body };
+        }
+    }
+
+    public sealed class TryStatNode : ComplexStatNode
+    {
+        public int CatchClauseCount { get; }
+        public bool HasElse { get; }
+        public bool HasFinally { get; }
+
+        [JsonIgnore]
+        public StatNode TryBody => this.Children[0].As<StatNode>();
+
+        [JsonIgnore]
+        public IEnumerable<CatchClauseNode> CatchClauses =>
+            this.Children.Skip(1).Take(this.CatchClauseCount).Cast<CatchClauseNode>();
+
+        [JsonIgnore]
+        public StatNode? ElseStat => this.HasElse ? this.Children[1 + this.CatchClauseCount].As<StatNode>() : null;
+
+        [JsonIgnore]
+        public StatNode? FinallyStat => this.HasFinally ? this.Children[this.Children.Count - 1].As<StatNode>() : null;
+
+
+        public TryStatNode(
+            int line,
+            StatNode tryBody,
+            CatchClauseNode[] catchClauses,
+            StatNode? elseStat,
+            StatNode? finallyStat)
+            : base(line, AssembleChildren(tryBody, catchClauses, elseStat, finallyStat))
+        {
+            this.CatchClauseCount = catchClauses.Length;
+            this.HasElse = elseStat is not null;
+            this.HasFinally = finallyStat is not null;
+        }
+
+
+        public override string GetText()
+        {
+            var sb = new StringBuilder("try ").Append(this.TryBody.GetText());
+            foreach (CatchClauseNode catchClause in this.CatchClauses)
+                sb.Append(' ').Append(catchClause.GetText());
+            if (this.ElseStat is not null)
+                sb.Append(" else ").Append(this.ElseStat.GetText());
+            if (this.FinallyStat is not null)
+                sb.Append(" finally ").Append(this.FinallyStat.GetText());
+            return sb.ToString();
+        }
+
+
+        private static ASTNode[] AssembleChildren(
+            StatNode tryBody,
+            CatchClauseNode[] catchClauses,
+            StatNode? elseStat,
+            StatNode? finallyStat)
+        {
+            var children = new List<ASTNode> { tryBody };
+            children.AddRange(catchClauses);
+            if (elseStat is not null)
+                children.Add(elseStat);
+            if (finallyStat is not null)
+                children.Add(finallyStat);
+            return children.ToArray();
+        }
+    }
+
+    public sealed class AsyncStatNode : ComplexStatNode
+    {
+        [JsonIgnore]
+        public IEnumerable<TagNode> Tags => this.Children.TakeWhile(e => e is TagNode).Cast<TagNode>();
+
+        [JsonIgnore]
+        public StatNode Statement => this.Children.SkipWhile(e => e is TagNode).Single().As<StatNode>();
+
+
+        public AsyncStatNode(int line, StatNode statement)
+            : base(line, new TagNode(line, "async"), statement) { }
+
+
+        public override string GetText() => $"async {this.Statement.GetText()}";
+    }
+
+    public sealed class MatchStatNode : ComplexStatNode
+    {
+        [JsonIgnore]
+        public ExprNode Subject => this.Children[0].As<ExprNode>();
+
+        [JsonIgnore]
+        public IEnumerable<CaseNode> Cases => this.Children.Skip(1).Cast<CaseNode>();
+
+
+        public MatchStatNode(int line, ExprNode subject, IEnumerable<CaseNode> cases)
+            : base(line, new ASTNode[] { subject }.Concat(cases)) { }
+
+
+        public override string GetText()
+            => $"match {this.Subject.GetText()} {{ {string.Join(" ", this.Cases.Select(c => c.GetText()))} }}";
+    }
+
     public sealed class JumpStatNode : SimpleStatNode
     {
         public JumpStatType Type { get; set; }

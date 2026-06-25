@@ -115,6 +115,17 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
+        public void AsyncDefBuildsFuncNodeWithAsyncTag()
+        {
+            var function = this.ParseStatement("async def f():\n    pass\n").As<FuncNode>();
+
+            Assert.That(function.Tags.Single().Identifier, Is.EqualTo("async"));
+            Assert.That(function.Identifier, Is.EqualTo("f"));
+        }
+
+        private StatNode ParseStatement(string source)
+            => this.builder.BuildFromSource(source).As<SourceNode>().Children.Single().As<StatNode>();
+
         public void FunctionReturnExpressionTest()
         {
             this.AssertReturnValue("def g() -> int: return 3\n", 3L);
