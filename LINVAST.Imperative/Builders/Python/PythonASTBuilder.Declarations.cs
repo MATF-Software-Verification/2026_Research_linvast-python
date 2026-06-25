@@ -88,8 +88,11 @@ namespace LINVAST.Imperative.Builders.Python
                     ExprNode? exprInitializer = ann.test().Length > 1
                         ? this.Visit(ann.test()[1]).As<ExprNode>()
                         : null;
-                    if (exprInitializer is not null)
+                    if (exprInitializer is not null) {
+                        if (this.TryCreateTypedTupleUnpackingDeclaration(target, exprInitializer, ctx.Start.Line, typeName, out DeclStatNode? tupleDecl))
+                            return tupleDecl!;
                         return new ExprStatNode(ctx.Start.Line, new AssignExprNode(ctx.Start.Line, target, exprInitializer));
+                    }
                     return new ExprStatNode(ctx.Start.Line, target);
                 }
 

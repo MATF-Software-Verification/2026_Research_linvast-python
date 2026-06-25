@@ -14,5 +14,12 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(() => this.builder.BuildFromSource("def broken(:\n    pass\n"),
                 Throws.InstanceOf<SyntaxErrorException>());
         }
+
+        [Test]
+        public void MultipleStarredTargetsThrowSyntaxErrorException()
+        {
+            Assert.That(() => this.builder.BuildFromSource("a, *b, *c = 1, 2, 3\n"),
+                Throws.InstanceOf<SyntaxErrorException>());
+        }
     }
 }

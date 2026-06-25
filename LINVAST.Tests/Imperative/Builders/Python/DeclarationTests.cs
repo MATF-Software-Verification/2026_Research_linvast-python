@@ -171,7 +171,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
-        public void TupleUnpackingAnnotatedTypeIsPromotedButTypeAnnotationIsLost()
+        public void TupleUnpackingAnnotatedTypeIsPromoted()
         {
             var source = "(a, b): tuple = (1, 2)\n";
             var nodes = this.builder.BuildFromSource(source).As<SourceNode>().Children.ToList();
@@ -179,7 +179,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(nodes.Single(), Is.TypeOf<DeclStatNode>());
             var declStat = nodes.Single().As<DeclStatNode>();
 
-            Assert.That(declStat.Specifiers.TypeName, Is.EqualTo("object"));
+            Assert.That(declStat.Specifiers.TypeName, Is.EqualTo("tuple"));
 
             var varDecls = declStat.DeclaratorList.Declarators.ToList();
             Assert.That(varDecls.Count, Is.EqualTo(2));
@@ -204,6 +204,87 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(forStat.Condition.As<IdNode>().Identifier, Is.EqualTo("pairs"));
 
             Assert.That(forStat.Statement.As<BlockStatNode>().Children.Single(), Is.TypeOf<EmptyStatNode>());
+        }
+
+        [Test]
+        public void TupleUnpackingStarSimpleEnd()
+        {
+            var source = "a, *b = 1, 2, 3\n";
+            var nodes = this.builder.BuildFromSource(source).As<SourceNode>().Children.ToList();
+
+            Assert.That(nodes.Single(), Is.TypeOf<DeclStatNode>());
+            var declStat = nodes.Single().As<DeclStatNode>();
+
+            var varDecls = declStat.DeclaratorList.Declarators.ToList();
+            Assert.That(varDecls.Count, Is.EqualTo(2));
+            Assert.That(varDecls[0].As<VarDeclNode>().Initializer!.As<LitExprNode>().Value, Is.EqualTo(1));
+            this.AssertInitializerArrayValues(varDecls[1].As<VarDeclNode>(), new object[] { 2, 3 });
+        }
+
+        [Test]
+        public void TupleUnpackingStarSimpleStart()
+        {
+            var source = "*a, b = 1, 2, 3\n";
+            var nodes = this.builder.BuildFromSource(source).As<SourceNode>().Children.ToList();
+
+            Assert.That(nodes.Single(), Is.TypeOf<DeclStatNode>());
+            var declStat = nodes.Single().As<DeclStatNode>();
+
+            var varDecls = declStat.DeclaratorList.Declarators.ToList();
+            Assert.That(varDecls.Count, Is.EqualTo(2));
+            this.AssertInitializerArrayValues(varDecls[0].As<VarDeclNode>(), new object[] { 1, 2 });
+            Assert.That(varDecls[1].As<VarDeclNode>().Initializer!.As<LitExprNode>().Value, Is.EqualTo(3));
+        }
+
+        [Test]
+        public void TupleUnpackingStarSimpleMiddle()
+        {
+            var source = "a, *b, c = 1, 2, 3, 4\n";
+            var nodes = this.builder.BuildFromSource(source).As<SourceNode>().Children.ToList();
+
+            Assert.That(nodes.Single(), Is.TypeOf<DeclStatNode>());
+            var declStat = nodes.Single().As<DeclStatNode>();
+
+            var varDecls = declStat.DeclaratorList.Declarators.ToList();
+            Assert.That(varDecls.Count, Is.EqualTo(3));
+            Assert.That(varDecls[0].As<VarDeclNode>().Initializer!.As<LitExprNode>().Value, Is.EqualTo(1));
+            this.AssertInitializerArrayValues(varDecls[1].As<VarDeclNode>(), new object[] { 2, 3 });
+            Assert.That(varDecls[2].As<VarDeclNode>().Initializer!.As<LitExprNode>().Value, Is.EqualTo(4));
+        }
+
+        [Test]
+        public void TupleUnpackingStarWithType()
+        {
+            var source = "(a, *b): tuple = (1, 2, 3)\n";
+            var nodes = this.builder.BuildFromSource(source).As<SourceNode>().Children.ToList();
+
+            Assert.That(nodes.Single(), Is.TypeOf<DeclStatNode>());
+            var declStat = nodes.Single().As<DeclStatNode>();
+            Assert.That(declStat.Specifiers.TypeName, Is.EqualTo("tuple"));
+
+            var varDecls = declStat.DeclaratorList.Declarators.ToList();
+            Assert.That(varDecls.Count, Is.EqualTo(2));
+            Assert.That(varDecls[0].As<VarDeclNode>().Initializer!.As<LitExprNode>().Value, Is.EqualTo(1));
+            this.AssertInitializerArrayValues(varDecls[1].As<VarDeclNode>(), new object[] { 2, 3 });
+        }
+
+        [Test]
+        public void TupleUnpackingStarWithTypeAndPreviousDeclarationPromotesToDeclaration()
+        {
+            var source = "a: int = 0\n(a, *b): tuple = (1, 2, 3)\n";
+            var nodes = this.builder.BuildFromSource(source).As<SourceNode>().Children.ToList();
+
+            Assert.That(nodes.Count, Is.EqualTo(2));
+            Assert.That(nodes[0], Is.TypeOf<DeclStatNode>());
+
+            var decl = nodes[1].As<DeclStatNode>();
+            Assert.That(decl.Specifiers.TypeName, Is.EqualTo("tuple"));
+        }
+
+        private void AssertInitializerArrayValues(VarDeclNode declaration, object[] expectedValues)
+        {
+            var initializer = declaration.Initializer!.As<ArrInitExprNode>();
+            Assert.That(initializer.Expressions.Select(e => e.As<LitExprNode>().Value), Is.EqualTo(expectedValues));
         }
     }
 }

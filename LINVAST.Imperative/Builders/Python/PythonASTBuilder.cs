@@ -91,6 +91,9 @@ namespace LINVAST.Imperative.Builders.Python
                 }
 
                 if (stat is ExprStatNode expr && expr.Expression is AssignExprNode assign) {
+                    if (this.HasMultipleStarredTargets(assign.LeftOperand))
+                        throw new SyntaxErrorException("multiple starred expressions in assignment");
+
                     // Try single identifier assignment first
                     if (assign.LeftOperand is IdNode id) {
                         if (!declared.Contains(id.Identifier)) {
