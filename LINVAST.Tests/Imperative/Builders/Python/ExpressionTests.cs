@@ -109,6 +109,28 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
+        public void DictComprehensionAssignmentBuildsDictCallWithEntryAndForClause()
+        {
+            var stat = this.ParseStatement("squares = {x: x ** 2 for x in range(1, 6)}\n");
+            var assign = stat.As<ExprStatNode>().Expression.As<AssignExprNode>();
+            var call = assign.RightOperand.As<FuncCallExprNode>();
+            ExprNode[] args = call.Arguments!.Expressions.ToArray();
+
+            Assert.That(assign.LeftOperand.As<IdNode>().Identifier, Is.EqualTo("squares"));
+            Assert.That(call.Identifier, Is.EqualTo("dict"));
+
+            var entry = args[0].As<DictEntryNode>();
+            Assert.That(entry.Key.Identifier, Is.EqualTo("x"));
+            Assert.That(entry.Value, Is.TypeOf<ArithmExprNode>());
+
+            var forClause = args[1].As<FuncCallExprNode>();
+            ExprNode[] clauseArgs = forClause.Arguments!.Expressions.ToArray();
+            Assert.That(forClause.Identifier, Is.EqualTo("for"));
+            Assert.That(clauseArgs[0].As<IdNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(clauseArgs[1].As<FuncCallExprNode>().Identifier, Is.EqualTo("range"));
+        }
+
+        [Test]
         public void GeneratorArgumentWithFilterBuildsClauses()
         {
             var call = this.ParseExpression("sum(x for x in xs if x > 0)").As<FuncCallExprNode>();
@@ -153,6 +175,115 @@ namespace LINVAST.Tests.Imperative.Builders.Python
 
             Assert.That(call.Identifier, Is.EqualTo("await"));
             Assert.That(call.Arguments!.Expressions.Single(), Is.TypeOf<FuncCallExprNode>());
+        }
+
+        [Test]
+        public void EllipsisBuildsEllipsisLiteral()
+        {
+            var ellipsis = this.ParseExpression("...").As<EllipsisLitExprNode>();
+
+            Assert.That(ellipsis.GetText(), Is.EqualTo("..."));
+        }
+
+        [Test]
+        public void FStringSimpleFieldBuildsFormatCall()
+        {
+            var call = this.ParseExpression("f\"{x}\"").As<FuncCallExprNode>();
+
+            Assert.That(call.Identifier, Is.EqualTo("format"));
+            Assert.That(call.Arguments!.Expressions.Single().As<IdNode>().Identifier, Is.EqualTo("x"));
+        }
+
+        [Test]
+        public void FStringSplitsLiteralAndFieldParts()
+        {
+            var call = this.ParseExpression("f\"a{x}b\"").As<FuncCallExprNode>();
+            ExprNode[] parts = call.Arguments!.Expressions.ToArray();
+
+            Assert.That(parts[0].As<LitExprNode>().Value, Is.EqualTo("a"));
+            Assert.That(parts[1], Is.TypeOf<IdNode>());
+            Assert.That(parts[2].As<LitExprNode>().Value, Is.EqualTo("b"));
+        }
+
+        [Test]
+        public void FStringEscapedBracesAreLiteralText()
+        {
+            var call = this.ParseExpression("f\"{{x}}\"").As<FuncCallExprNode>();
+
+            Assert.That(call.Arguments!.Expressions.Single().As<LitExprNode>().Value, Is.EqualTo("{x}"));
+        }
+
+        [Test]
+        public void FStringFieldExpressionIsParsed()
+        {
+            var call = this.ParseExpression("f\"{a + b}\"").As<FuncCallExprNode>();
+
+            Assert.That(call.Arguments!.Expressions.Single(), Is.TypeOf<ArithmExprNode>());
+        }
+
+        [Test]
+        public void FStringComparisonOperatorIsNotTreatedAsConversion()
+        {
+            var call = this.ParseExpression("f\"{a != b}\"").As<FuncCallExprNode>();
+
+            Assert.That(call.Arguments!.Expressions.Single(), Is.TypeOf<RelExprNode>());
+        }
+
+        [Test]
+        public void FStringConversionBuildsFormatField()
+        {
+            var call = this.ParseExpression("f\"{x!r}\"").As<FuncCallExprNode>();
+            var field = call.Arguments!.Expressions.Single().As<FuncCallExprNode>();
+            ExprNode[] args = field.Arguments!.Expressions.ToArray();
+
+            Assert.That(field.Identifier, Is.EqualTo("format_field"));
+            Assert.That(args[0].As<IdNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(args[1].As<LitExprNode>().Value, Is.EqualTo("!r"));
+            Assert.That(args[2], Is.TypeOf<NullLitExprNode>());
+        }
+
+        [Test]
+        public void FStringFormatSpecBuildsFormatField()
+        {
+            var call = this.ParseExpression("f\"{x:.2f}\"").As<FuncCallExprNode>();
+            var field = call.Arguments!.Expressions.Single().As<FuncCallExprNode>();
+            ExprNode[] args = field.Arguments!.Expressions.ToArray();
+
+            Assert.That(args[1], Is.TypeOf<NullLitExprNode>());
+            Assert.That(args[2].As<LitExprNode>().Value, Is.EqualTo(".2f"));
+        }
+
+        [Test]
+        public void FStringNestedSpecFieldIsParsed()
+        {
+            var call = this.ParseExpression("f\"{x:{w}}\"").As<FuncCallExprNode>();
+            var field = call.Arguments!.Expressions.Single().As<FuncCallExprNode>();
+            var spec = field.Arguments!.Expressions.ElementAt(2).As<FuncCallExprNode>();
+
+            Assert.That(spec.Identifier, Is.EqualTo("format"));
+            Assert.That(spec.Arguments!.Expressions.Single().As<IdNode>().Identifier, Is.EqualTo("w"));
+        }
+
+        [Test]
+        public void FStringDebugEqualsEmitsSourceTextAndReprField()
+        {
+            var call = this.ParseExpression("f\"{x=}\"").As<FuncCallExprNode>();
+            ExprNode[] parts = call.Arguments!.Expressions.ToArray();
+            var field = parts[1].As<FuncCallExprNode>();
+
+            Assert.That(parts[0].As<LitExprNode>().Value, Is.EqualTo("x="));
+            Assert.That(field.Identifier, Is.EqualTo("format_field"));
+            Assert.That(field.Arguments!.Expressions.ElementAt(1).As<LitExprNode>().Value, Is.EqualTo("!r"));
+        }
+
+        [Test]
+        public void FStringImplicitlyConcatenatesWithPlainString()
+        {
+            var call = this.ParseExpression("\"a\" f\"{x}\"").As<FuncCallExprNode>();
+            ExprNode[] parts = call.Arguments!.Expressions.ToArray();
+
+            Assert.That(parts[0].As<LitExprNode>().Value, Is.EqualTo("a"));
+            Assert.That(parts[1].As<IdNode>().Identifier, Is.EqualTo("x"));
         }
 
         private ExprNode ParseExpression(string source)

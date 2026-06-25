@@ -290,6 +290,17 @@ namespace LINVAST.Imperative.Nodes
         public override bool Equals([AllowNull] ASTNode other) => other is NullLitExprNode;
     }
 
+    public sealed class EllipsisLitExprNode : LitExprNode
+    {
+        public EllipsisLitExprNode(int line)
+            : base(line, "...", TypeCode.Object) { }
+
+
+        public override string GetText() => "...";
+
+        public override bool Equals([AllowNull] ASTNode other) => other is EllipsisLitExprNode;
+    }
+
     public sealed class YieldExprNode : ExprNode
     {
         public bool IsDelegating { get; }

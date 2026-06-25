@@ -200,7 +200,7 @@ namespace LINVAST.Imperative.Builders.Python
                 return this.BuildStringLiteral(ctx.Start.Line, ctx.STRING());
 
             if (ctx.ELLIPSIS() is not null)
-                return new IdNode(ctx.Start.Line, "...");
+                return new EllipsisLitExprNode(ctx.Start.Line);
 
             if (ctx.NONE() is not null)
                 return new NullLitExprNode(ctx.Start.Line);
@@ -393,19 +393,250 @@ namespace LINVAST.Imperative.Builders.Python
 
         private ASTNode BuildStringLiteral(int line, ITerminalNode[] tokens)
         {
-            if (tokens.Any(t => IsFormatStringToken(t.GetText()))) {
-                IEnumerable<ExprNode> parts = tokens.Select(t => new LitExprNode(line, t.GetText()));
-                return new FuncCallExprNode(
-                    line,
-                    new IdNode(line, "format"),
-                    new ExprListNode(line, parts));
-            }
+            // Implicitly concatenated literals are merged into one node. If any
+            // piece is an f-string the whole thing becomes a format(...) call.
+            if (tokens.Any(t => IsFormatStringToken(t.GetText())))
+                return this.BuildFormatString(line, tokens);
 
             var value = new StringBuilder();
             foreach (ITerminalNode token in tokens)
                 value.Append(DecodePythonString(token.GetText()));
 
             return new LitExprNode(line, value.ToString());
+        }
+
+        // An f-string is lowered to a synthetic call:
+        //   format(part0, part1, ...)
+        // where each part is either a string literal (the text between fields, with
+        // {{/}} unescaped) or a replacement field. A plain field is the parsed
+        // expression itself; a field carrying a conversion and/or a format spec
+        // becomes format_field(expr, conversion?, spec?) with null literals for the
+        // missing pieces. A format spec that itself contains replacement fields is
+        // represented recursively as a nested format(...) call.
+        private ASTNode BuildFormatString(int line, ITerminalNode[] tokens)
+        {
+            var parts = new List<ExprNode>();
+            var literal = new StringBuilder();
+
+            foreach (ITerminalNode token in tokens) {
+                (string content, bool isRaw, bool isFormat) = ExtractStringContent(token.GetText());
+                if (!isFormat) {
+                    literal.Append(isRaw ? content : UnescapePythonStringContent(content));
+                    continue;
+                }
+
+                this.ScanFormatContent(line, content, isRaw, literal, parts);
+            }
+
+            FlushLiteral(line, literal, parts);
+            if (parts.Count == 0)
+                parts.Add(new LitExprNode(line, string.Empty));
+
+            return new FuncCallExprNode(line, new IdNode(line, "format"), new ExprListNode(line, parts));
+        }
+
+        private void ScanFormatContent(int line, string content, bool isRaw, StringBuilder literal, List<ExprNode> parts)
+        {
+            int i = 0;
+            while (i < content.Length) {
+                char c = content[i];
+                if (c == '{') {
+                    if (i + 1 < content.Length && content[i + 1] == '{') {
+                        literal.Append('{');
+                        i += 2;
+                        continue;
+                    }
+                    FlushLiteral(line, literal, parts);
+                    i = this.ParseFormatField(line, content, i + 1, parts);
+                    continue;
+                }
+
+                if (c == '}') {
+                    // '}}' is an escaped brace; a lone '}' is tolerated as text.
+                    literal.Append('}');
+                    i += (i + 1 < content.Length && content[i + 1] == '}') ? 2 : 1;
+                    continue;
+                }
+
+                if (!isRaw && c == '\\') {
+                    i = AppendEscape(content, i, literal);
+                    continue;
+                }
+
+                literal.Append(c);
+                i++;
+            }
+        }
+
+        // Parses a replacement field starting just after '{' and returns the index
+        // immediately after the field's closing '}'.
+        private int ParseFormatField(int line, string content, int start, List<ExprNode> parts)
+        {
+            int exprStart = start;
+            int i = start;
+            int depth = 0;
+            int exprEnd = -1;
+
+            while (i < content.Length) {
+                char c = content[i];
+                if (c is '(' or '[' or '{') {
+                    depth++;
+                    i++;
+                    continue;
+                }
+                if (depth > 0) {
+                    if (c is ')' or ']' or '}')
+                        depth--;
+                    i++;
+                    continue;
+                }
+                if (c is ')' or ']') {
+                    i++;
+                    continue;
+                }
+                if (c == '}'
+                    || (c == '!' && !(i + 1 < content.Length && content[i + 1] == '='))
+                    || c == ':'
+                    || IsDebugEquals(content, i)) {
+                    exprEnd = i;
+                    break;
+                }
+                i++;
+            }
+
+            if (exprEnd < 0)
+                exprEnd = content.Length;
+
+            string exprSrc = content[exprStart..exprEnd];
+            i = exprEnd;
+
+            bool debug = false;
+            if (i < content.Length && content[i] == '=' && IsDebugEquals(content, i)) {
+                debug = true;
+                i++;
+            }
+
+            string? conversion = null;
+            if (i < content.Length && content[i] == '!' && !(i + 1 < content.Length && content[i + 1] == '=')) {
+                conversion = i + 1 < content.Length ? "!" + content[i + 1] : "!";
+                i += conversion.Length;
+            }
+
+            ExprNode? specNode = null;
+            if (i < content.Length && content[i] == ':') {
+                int specStart = i + 1;
+                int specDepth = 0;
+                int j = specStart;
+                while (j < content.Length) {
+                    char c = content[j];
+                    if (c == '{')
+                        specDepth++;
+                    else if (c == '}') {
+                        if (specDepth == 0)
+                            break;
+                        specDepth--;
+                    }
+                    j++;
+                }
+                specNode = this.BuildFormatSpec(line, content[specStart..j]);
+                i = j;
+            }
+
+            // Consume up to and including the field's closing brace.
+            while (i < content.Length && content[i] != '}')
+                i++;
+            if (i < content.Length)
+                i++;
+
+            if (debug)
+                parts.Add(new LitExprNode(line, exprSrc + "="));
+
+            // Python uses repr by default for the value of a `{x=}` debug field.
+            if (debug && conversion is null && specNode is null)
+                conversion = "!r";
+
+            ExprNode valueExpr = this.ParseEmbeddedExpression(line, exprSrc);
+            if (conversion is null && specNode is null) {
+                parts.Add(valueExpr);
+            } else {
+                var fieldArgs = new ExprNode[] {
+                    valueExpr,
+                    conversion is null ? new NullLitExprNode(line) : new LitExprNode(line, conversion),
+                    specNode ?? new NullLitExprNode(line),
+                };
+                parts.Add(new FuncCallExprNode(line, new IdNode(line, "format_field"), new ExprListNode(line, fieldArgs)));
+            }
+
+            return i;
+        }
+
+        private ExprNode BuildFormatSpec(int line, string specSrc)
+        {
+            var parts = new List<ExprNode>();
+            var literal = new StringBuilder();
+            // Format specs do not process backslash escapes, hence isRaw: true.
+            this.ScanFormatContent(line, specSrc, isRaw: true, literal, parts);
+            FlushLiteral(line, literal, parts);
+
+            if (parts.Count == 0)
+                return new LitExprNode(line, string.Empty);
+            if (parts.Count == 1 && parts[0] is LitExprNode lit)
+                return lit;
+            return new FuncCallExprNode(line, new IdNode(line, "format"), new ExprListNode(line, parts));
+        }
+
+        private ExprNode ParseEmbeddedExpression(int line, string exprSrc)
+        {
+            exprSrc = exprSrc.Trim();
+            if (exprSrc.Length == 0)
+                return new LitExprNode(line, string.Empty);
+
+            try {
+                return this.BuildFromSource(exprSrc, p => p.testlist()).As<ExprNode>();
+            } catch {
+                return new LitExprNode(line, exprSrc);
+            }
+        }
+
+        private static void FlushLiteral(int line, StringBuilder literal, List<ExprNode> parts)
+        {
+            if (literal.Length == 0)
+                return;
+            parts.Add(new LitExprNode(line, literal.ToString()));
+            literal.Clear();
+        }
+
+        // A single '=' acts as a debug specifier only when it is not part of an
+        // operator (==, !=, <=, >=, :=) and is immediately followed (ignoring
+        // spaces) by the end of the field, a conversion, or a format spec.
+        private static bool IsDebugEquals(string content, int i)
+        {
+            if (content[i] != '=')
+                return false;
+            if (i + 1 < content.Length && content[i + 1] == '=')
+                return false;
+            if (i > 0 && content[i - 1] is '=' or '!' or '<' or '>' or ':')
+                return false;
+
+            int j = i + 1;
+            while (j < content.Length && content[j] == ' ')
+                j++;
+            return j >= content.Length || content[j] is '}' or ':' or '!';
+        }
+
+        private static (string Content, bool IsRaw, bool IsFormat) ExtractStringContent(string token)
+        {
+            (int prefixEnd, bool isRaw, bool isFormat) = ParseStringPrefixes(token);
+            if (prefixEnd >= token.Length || !IsStringDelimiter(token, prefixEnd))
+                return (token, isRaw, isFormat);
+
+            int quoteLength = GetQuoteLength(token, prefixEnd);
+            int contentStart = prefixEnd + quoteLength;
+            int contentEnd = token.Length - quoteLength;
+            if (contentStart > contentEnd)
+                return (string.Empty, isRaw, isFormat);
+
+            return (token[contentStart..contentEnd], isRaw, isFormat);
         }
 
 
@@ -760,33 +991,41 @@ namespace LINVAST.Imperative.Builders.Python
         private static string UnescapePythonStringContent(string content)
         {
             var result = new StringBuilder(content.Length);
-            for (int i = 0; i < content.Length; i++) {
-                if (content[i] != '\\') {
-                    result.Append(content[i]);
-                    continue;
-                }
-                if (++i >= content.Length) {
-                    result.Append('\\');
-                    break;
-                }
-                switch (content[i]) {
-                    case 'n': result.Append('\n'); break;
-                    case 'r': result.Append('\r'); break;
-                    case 't': result.Append('\t'); break;
-                    case '\\': result.Append('\\'); break;
-                    case '\'': result.Append('\''); break;
-                    case '"': result.Append('"'); break;
-                    case 'a': result.Append('\a'); break;
-                    case 'b': result.Append('\b'); break;
-                    case 'f': result.Append('\f'); break;
-                    case 'v': result.Append('\v'); break;
-                    default:
-                        result.Append('\\');
-                        result.Append(content[i]);
-                        break;
-                }
+            int i = 0;
+            while (i < content.Length) {
+                if (content[i] == '\\')
+                    i = AppendEscape(content, i, result);
+                else
+                    result.Append(content[i++]);
             }
             return result.ToString();
+        }
+
+        // Decodes a single escape sequence beginning at the backslash at index i
+        // and returns the index just past the consumed characters.
+        private static int AppendEscape(string content, int i, StringBuilder result)
+        {
+            if (++i >= content.Length) {
+                result.Append('\\');
+                return i;
+            }
+            switch (content[i]) {
+                case 'n': result.Append('\n'); break;
+                case 'r': result.Append('\r'); break;
+                case 't': result.Append('\t'); break;
+                case '\\': result.Append('\\'); break;
+                case '\'': result.Append('\''); break;
+                case '"': result.Append('"'); break;
+                case 'a': result.Append('\a'); break;
+                case 'b': result.Append('\b'); break;
+                case 'f': result.Append('\f'); break;
+                case 'v': result.Append('\v'); break;
+                default:
+                    result.Append('\\');
+                    result.Append(content[i]);
+                    break;
+            }
+            return i + 1;
         }
     }
 }
