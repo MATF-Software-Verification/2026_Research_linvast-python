@@ -68,24 +68,36 @@ namespace LINVAST.Imperative.Builders.Python
                 return first;
 
             Python3Parser.Comp_opContext[] ops = ctx.comp_op();
-            if (exprs.Length == 2 && ops.Length == 1) {
-                RelOpNode op = this.CreateRelOp(ctx.Start.Line, ops[0]);
-                ExprNode second = this.Visit(exprs[1]).As<ExprNode>();
-                return new RelExprNode(ctx.Start.Line, first, op, second);
-            }
+
+            // A chained comparison such as `a < f() < b` desugars structurally
+            // into `a < f() and f() < b`, so every interior operand participates
+            // in two comparisons. The two RelExprNodes must NOT share the same
+            // child instance: ASTNode's constructor wires `child.Parent = this`,
+            // so a shared operand would end up parented only to the last
+            // comparison, breaking the AST parent invariant. We therefore build
+            // a fresh, independent subtree for each appearance by re-visiting the
+            // parse tree. This builder only constructs nodes (it does not execute
+            // the program), so re-visiting has no runtime "single evaluation"
+            // implications -- it simply yields a structurally-equal, fully
+            // parented duplicate.
+            ExprNode Operand(int index)
+                => this.Visit(exprs[index]).As<ExprNode>();
+
+            if (ops.Length == 1)
+                return new RelExprNode(ctx.Start.Line, first, this.CreateRelOp(ctx.Start.Line, ops[0]), Operand(1));
 
             ExprNode result = new RelExprNode(
-                ctx.Start.Line,
+                exprs[0].Start.Line,
                 first,
                 this.CreateRelOp(exprs[0].Start.Line, ops[0]),
-                this.Visit(exprs[1]).As<ExprNode>());
+                Operand(1));
 
             for (int i = 1; i < ops.Length; i++) {
                 var comparison = new RelExprNode(
                     exprs[i].Start.Line,
-                    this.Visit(exprs[i]).As<ExprNode>(),
+                    Operand(i),
                     this.CreateRelOp(exprs[i].Start.Line, ops[i]),
-                    this.Visit(exprs[i + 1]).As<ExprNode>());
+                    Operand(i + 1));
                 result = new LogicExprNode(
                     ctx.Start.Line,
                     result,
@@ -138,15 +150,19 @@ namespace LINVAST.Imperative.Builders.Python
         // atom_expr: AWAIT? atom trailer*
         public override ASTNode VisitAtom_expr(Python3Parser.Atom_exprContext ctx)
         {
-            if (ctx.AWAIT() is not null)
-                throw new NotImplementedException("await expressions");
-
             ExprNode expr = this.Visit(ctx.atom()).As<ExprNode>();
-            if (ctx.trailer() is null)
-                return expr;
+            if (ctx.trailer() is not null) {
+                foreach (Python3Parser.TrailerContext trailer in ctx.trailer())
+                    expr = this.ApplyTrailer(expr, trailer);
+            }
 
-            foreach (Python3Parser.TrailerContext trailer in ctx.trailer())
-                expr = this.ApplyTrailer(expr, trailer);
+            // `await x` is represented as a call to the synthetic `await` builtin,
+            // mirroring how other Python-specific expressions are lowered.
+            if (ctx.AWAIT() is not null)
+                return new FuncCallExprNode(
+                    ctx.Start.Line,
+                    new IdNode(ctx.Start.Line, "await"),
+                    new ExprListNode(ctx.Start.Line, expr));
 
             return expr;
         }
@@ -163,8 +179,11 @@ namespace LINVAST.Imperative.Builders.Python
             }
 
             if (ctx.OPEN_BRACK() is not null) {
-                if (ctx.testlist_comp() is not null)
-                    return this.Visit(ctx.testlist_comp());
+                if (ctx.testlist_comp() is not null) {
+                    return ctx.testlist_comp().comp_for() is not null
+                        ? this.BuildComprehension(ctx.testlist_comp(), "list")
+                        : this.Visit(ctx.testlist_comp());
+                }
                 return new ArrInitExprNode(ctx.Start.Line);
             }
 
@@ -184,7 +203,7 @@ namespace LINVAST.Imperative.Builders.Python
                 return this.BuildStringLiteral(ctx.Start.Line, ctx.STRING());
 
             if (ctx.ELLIPSIS() is not null)
-                return new IdNode(ctx.Start.Line, "...");
+                return new EllipsisLitExprNode(ctx.Start.Line);
 
             if (ctx.NONE() is not null)
                 return new NullLitExprNode(ctx.Start.Line);
@@ -249,8 +268,10 @@ namespace LINVAST.Imperative.Builders.Python
         // testlist_comp: (test | star_expr) (comp_for | (',' (test | star_expr))* ','?)
         public override ASTNode VisitTestlist_comp(Python3Parser.Testlist_compContext ctx)
         {
+            // A bare testlist_comp wrapped in parentheses (or used directly) is a
+            // generator expression; bracketed list comprehensions are handled in VisitAtom.
             if (ctx.comp_for() is not null)
-                throw new NotImplementedException("comprehensions");
+                return this.BuildComprehension(ctx, "generator");
 
             return this.VisitExpressionSequence(ctx);
         }
@@ -258,8 +279,20 @@ namespace LINVAST.Imperative.Builders.Python
         // dictorsetmaker: dict literal | set literal (+ optional comprehension)
         public override ASTNode VisitDictorsetmaker(Python3Parser.DictorsetmakerContext ctx)
         {
-            if (ctx.comp_for() is not null)
-                throw new NotImplementedException("dict/set comprehensions");
+            if (ctx.comp_for() is not null) {
+                if (ctx.COLON() is { Length: > 0 }) {
+                    DictEntryNode entry = this.CreateDictEntry(
+                        ctx.Start.Line,
+                        this.Visit(ctx.test(0)).As<ExprNode>(),
+                        this.Visit(ctx.test(1)).As<ExprNode>());
+                    return this.BuildComprehension(ctx.Start.Line, "dict", entry, ctx.comp_for());
+                }
+
+                ExprNode element = ctx.test().Length > 0
+                    ? this.Visit(ctx.test(0)).As<ExprNode>()
+                    : this.Visit(ctx.star_expr(0)).As<ExprNode>();
+                return this.BuildComprehension(ctx.Start.Line, "set", element, ctx.comp_for());
+            }
 
             if (ctx.COLON() is { Length: > 0 } || ctx.POWER() is { Length: > 0 }) {
                 var entries = new List<DictEntryNode>();
@@ -291,8 +324,11 @@ namespace LINVAST.Imperative.Builders.Python
         // argument: test comp_for? | test '=' test | '**' test | '*' test
         public override ASTNode VisitArgument(Python3Parser.ArgumentContext ctx)
         {
-            if (ctx.comp_for() is not null)
-                throw new NotImplementedException("comprehensions in arguments");
+            // `f(x for x in xs)` is a generator expression passed as the argument.
+            if (ctx.comp_for() is not null) {
+                ExprNode element = this.Visit(ctx.test(0)).As<ExprNode>();
+                return this.BuildComprehension(ctx.Start.Line, "generator", element, ctx.comp_for());
+            }
 
             if (ctx.POWER() is not null) {
                 ExprNode value = this.Visit(ctx.test()[0]).As<ExprNode>();
@@ -315,15 +351,22 @@ namespace LINVAST.Imperative.Builders.Python
 
         // comp_iter: comp_for | comp_if
         public override ASTNode VisitComp_iter(Python3Parser.Comp_iterContext ctx) =>
-            throw new NotImplementedException("comp_iter");
+            ctx.comp_for() is not null
+                ? this.Visit(ctx.comp_for())
+                : this.Visit(ctx.comp_if());
 
         // comp_for: ASYNC? 'for' exprlist 'in' or_test comp_iter?
         public override ASTNode VisitComp_for(Python3Parser.Comp_forContext ctx) =>
-            throw new NotImplementedException("comp_for");
+            new ExprListNode(ctx.Start.Line, this.CollectComprehensionClauses(ctx));
 
         // comp_if: 'if' test_nocond comp_iter?
-        public override ASTNode VisitComp_if(Python3Parser.Comp_ifContext ctx) =>
-            throw new NotImplementedException("comp_if");
+        public override ASTNode VisitComp_if(Python3Parser.Comp_ifContext ctx)
+        {
+            var clauses = new List<ExprNode>();
+            Python3Parser.Comp_iterContext? next = this.AddIfClause(clauses, ctx);
+            this.CollectClausesFromIter(clauses, next);
+            return new ExprListNode(ctx.Start.Line, clauses);
+        }
 
         // yield_expr: 'yield' yield_arg?
         public override ASTNode VisitYield_expr(Python3Parser.Yield_exprContext ctx)
@@ -353,19 +396,289 @@ namespace LINVAST.Imperative.Builders.Python
 
         private ASTNode BuildStringLiteral(int line, ITerminalNode[] tokens)
         {
-            if (tokens.Any(t => IsFormatStringToken(t.GetText()))) {
-                IEnumerable<ExprNode> parts = tokens.Select(t => new LitExprNode(line, t.GetText()));
-                return new FuncCallExprNode(
-                    line,
-                    new IdNode(line, "format"),
-                    new ExprListNode(line, parts));
-            }
+            // Implicitly concatenated literals are merged into one node. If any
+            // piece is an f-string the whole thing becomes a format(...) call.
+            if (tokens.Any(t => IsFormatStringToken(t.GetText())))
+                return this.BuildFormatString(line, tokens);
 
             var value = new StringBuilder();
             foreach (ITerminalNode token in tokens)
                 value.Append(DecodePythonString(token.GetText()));
 
             return new LitExprNode(line, value.ToString());
+        }
+
+        // An f-string is lowered to a synthetic call:
+        //   format(part0, part1, ...)
+        // where each part is either a string literal (the text between fields, with
+        // {{/}} unescaped) or a replacement field. A plain field is the parsed
+        // expression itself; a field carrying a conversion and/or a format spec
+        // becomes format_field(expr, conversion?, spec?) with null literals for the
+        // missing pieces. A format spec that itself contains replacement fields is
+        // represented recursively as a nested format(...) call.
+        private ASTNode BuildFormatString(int line, ITerminalNode[] tokens)
+        {
+            var parts = new List<ExprNode>();
+            var literal = new StringBuilder();
+
+            foreach (ITerminalNode token in tokens) {
+                (string content, bool isRaw, bool isFormat) = ExtractStringContent(token.GetText());
+                if (!isFormat) {
+                    literal.Append(isRaw ? content : UnescapePythonStringContent(content));
+                    continue;
+                }
+
+                this.ScanFormatContent(line, content, isRaw, literal, parts);
+            }
+
+            FlushLiteral(line, literal, parts);
+            if (parts.Count == 0)
+                parts.Add(new LitExprNode(line, string.Empty));
+
+            return new FuncCallExprNode(line, new IdNode(line, "format"), new ExprListNode(line, parts));
+        }
+
+        private void ScanFormatContent(int line, string content, bool isRaw, StringBuilder literal, List<ExprNode> parts)
+        {
+            int i = 0;
+            while (i < content.Length) {
+                char c = content[i];
+                if (c == '{') {
+                    if (i + 1 < content.Length && content[i + 1] == '{') {
+                        literal.Append('{');
+                        i += 2;
+                        continue;
+                    }
+                    FlushLiteral(line, literal, parts);
+                    i = this.ParseFormatField(line, content, i + 1, parts);
+                    continue;
+                }
+
+                if (c == '}') {
+                    // '}}' is an escaped brace; a lone '}' is tolerated as text.
+                    literal.Append('}');
+                    i += (i + 1 < content.Length && content[i + 1] == '}') ? 2 : 1;
+                    continue;
+                }
+
+                if (!isRaw && c == '\\') {
+                    i = AppendEscape(content, i, literal);
+                    continue;
+                }
+
+                literal.Append(c);
+                i++;
+            }
+        }
+
+        // Parses a replacement field starting just after '{' and returns the index
+        // immediately after the field's closing '}'.
+        private int ParseFormatField(int line, string content, int start, List<ExprNode> parts)
+        {
+            int exprStart = start;
+            int i = start;
+            int depth = 0;
+            int exprEnd = -1;
+
+            while (i < content.Length) {
+                char c = content[i];
+                // A replacement field can hold an arbitrary expression, including
+                // string literals such as f"{'}'}" or f"{'a:b'}". Skip over them
+                // wholesale so that delimiters ({ } : !) appearing inside a quoted
+                // literal are not mistaken for the structure of the field itself.
+                if (c is '\'' or '"') {
+                    i = SkipStringLiteral(content, i);
+                    continue;
+                }
+                if (c is '(' or '[' or '{') {
+                    depth++;
+                    i++;
+                    continue;
+                }
+                if (depth > 0) {
+                    if (c is ')' or ']' or '}')
+                        depth--;
+                    i++;
+                    continue;
+                }
+                if (c is ')' or ']') {
+                    i++;
+                    continue;
+                }
+                if (c == '}'
+                    || (c == '!' && !(i + 1 < content.Length && content[i + 1] == '='))
+                    || c == ':'
+                    || IsDebugEquals(content, i)) {
+                    exprEnd = i;
+                    break;
+                }
+                i++;
+            }
+
+            if (exprEnd < 0)
+                exprEnd = content.Length;
+
+            string exprSrc = content[exprStart..exprEnd];
+            i = exprEnd;
+
+            bool debug = false;
+            if (i < content.Length && content[i] == '=' && IsDebugEquals(content, i)) {
+                debug = true;
+                i++;
+            }
+
+            string? conversion = null;
+            if (i < content.Length && content[i] == '!' && !(i + 1 < content.Length && content[i + 1] == '=')) {
+                conversion = i + 1 < content.Length ? "!" + content[i + 1] : "!";
+                i += conversion.Length;
+            }
+
+            ExprNode? specNode = null;
+            if (i < content.Length && content[i] == ':') {
+                int specStart = i + 1;
+                int specDepth = 0;
+                int j = specStart;
+                while (j < content.Length) {
+                    char c = content[j];
+                    if (c is '\'' or '"') {
+                        j = SkipStringLiteral(content, j);
+                        continue;
+                    }
+                    if (c == '{')
+                        specDepth++;
+                    else if (c == '}') {
+                        if (specDepth == 0)
+                            break;
+                        specDepth--;
+                    }
+                    j++;
+                }
+                specNode = this.BuildFormatSpec(line, content[specStart..j]);
+                i = j;
+            }
+
+            // Consume up to and including the field's closing brace.
+            while (i < content.Length && content[i] != '}')
+                i++;
+            if (i < content.Length)
+                i++;
+
+            if (debug)
+                parts.Add(new LitExprNode(line, exprSrc + "="));
+
+            // Python uses repr by default for the value of a `{x=}` debug field.
+            if (debug && conversion is null && specNode is null)
+                conversion = "!r";
+
+            ExprNode valueExpr = this.ParseEmbeddedExpression(line, exprSrc);
+            if (conversion is null && specNode is null) {
+                parts.Add(valueExpr);
+            } else {
+                var fieldArgs = new ExprNode[] {
+                    valueExpr,
+                    conversion is null ? new NullLitExprNode(line) : new LitExprNode(line, conversion),
+                    specNode ?? new NullLitExprNode(line),
+                };
+                parts.Add(new FuncCallExprNode(line, new IdNode(line, "format_field"), new ExprListNode(line, fieldArgs)));
+            }
+
+            return i;
+        }
+
+        private ExprNode BuildFormatSpec(int line, string specSrc)
+        {
+            var parts = new List<ExprNode>();
+            var literal = new StringBuilder();
+            // Format specs do not process backslash escapes, hence isRaw: true.
+            this.ScanFormatContent(line, specSrc, isRaw: true, literal, parts);
+            FlushLiteral(line, literal, parts);
+
+            if (parts.Count == 0)
+                return new LitExprNode(line, string.Empty);
+            if (parts.Count == 1 && parts[0] is LitExprNode lit)
+                return lit;
+            return new FuncCallExprNode(line, new IdNode(line, "format"), new ExprListNode(line, parts));
+        }
+
+        private ExprNode ParseEmbeddedExpression(int line, string exprSrc)
+        {
+            exprSrc = exprSrc.Trim();
+            if (exprSrc.Length == 0)
+                return new LitExprNode(line, string.Empty);
+
+            try {
+                return this.BuildFromSource(exprSrc, p => p.testlist()).As<ExprNode>();
+            } catch {
+                return new LitExprNode(line, exprSrc);
+            }
+        }
+
+        private static void FlushLiteral(int line, StringBuilder literal, List<ExprNode> parts)
+        {
+            if (literal.Length == 0)
+                return;
+            parts.Add(new LitExprNode(line, literal.ToString()));
+            literal.Clear();
+        }
+
+        // Returns the index immediately past a string literal that begins at the
+        // quote character at index i. Handles single/double quotes, triple-quoted
+        // literals, and backslash escapes. If the literal is unterminated the end
+        // of the content is returned. This lets the f-string field scanner treat an
+        // embedded literal (e.g. the '}' in f"{'}'}") as opaque text.
+        private static int SkipStringLiteral(string content, int i)
+        {
+            char quote = content[i];
+            bool triple = i + 2 < content.Length && content[i + 1] == quote && content[i + 2] == quote;
+            int j = i + (triple ? 3 : 1);
+            while (j < content.Length) {
+                char c = content[j];
+                if (c == '\\') {
+                    j += 2;
+                    continue;
+                }
+                if (c == quote) {
+                    if (!triple)
+                        return j + 1;
+                    if (j + 2 < content.Length && content[j + 1] == quote && content[j + 2] == quote)
+                        return j + 3;
+                }
+                j++;
+            }
+            return content.Length;
+        }
+
+        // A single '=' acts as a debug specifier only when it is not part of an
+        // operator (==, !=, <=, >=, :=) and is immediately followed (ignoring
+        // spaces) by the end of the field, a conversion, or a format spec.
+        private static bool IsDebugEquals(string content, int i)
+        {
+            if (content[i] != '=')
+                return false;
+            if (i + 1 < content.Length && content[i + 1] == '=')
+                return false;
+            if (i > 0 && content[i - 1] is '=' or '!' or '<' or '>' or ':')
+                return false;
+
+            int j = i + 1;
+            while (j < content.Length && content[j] == ' ')
+                j++;
+            return j >= content.Length || content[j] is '}' or ':' or '!';
+        }
+
+        private static (string Content, bool IsRaw, bool IsFormat) ExtractStringContent(string token)
+        {
+            (int prefixEnd, bool isRaw, bool isFormat) = ParseStringPrefixes(token);
+            if (prefixEnd >= token.Length || !IsStringDelimiter(token, prefixEnd))
+                return (token, isRaw, isFormat);
+
+            int quoteLength = GetQuoteLength(token, prefixEnd);
+            int contentStart = prefixEnd + quoteLength;
+            int contentEnd = token.Length - quoteLength;
+            if (contentStart > contentEnd)
+                return (string.Empty, isRaw, isFormat);
+
+            return (token[contentStart..contentEnd], isRaw, isFormat);
         }
 
 
@@ -478,10 +791,100 @@ namespace LINVAST.Imperative.Builders.Python
 
         private ExprNode VisitSubscriptIndex(Python3Parser.Subscript_Context ctx)
         {
+            // subscript_: test | test? ':' test? sliceop?
             if (ctx.COLON() is null)
                 return this.Visit(ctx.test(0)).As<ExprNode>();
 
-            return new LitExprNode(ctx.Start.Line, ctx.GetText());
+            // A slice such as a[start:stop:step] is lowered to a call to the
+            // synthetic `slice` builtin, mirroring Python's slice(start, stop, step).
+            // Omitted bounds are represented by null literals (Python's None).
+            int line = ctx.Start.Line;
+            ExprNode? start = null;
+            ExprNode? stop = null;
+            ExprNode? step = null;
+            bool afterColon = false;
+            foreach (IParseTree child in ctx.children) {
+                switch (child) {
+                    case ITerminalNode term when term.Symbol.Type == Python3Parser.COLON:
+                        afterColon = true;
+                        break;
+                    case Python3Parser.TestContext test when !afterColon:
+                        start = this.Visit(test).As<ExprNode>();
+                        break;
+                    case Python3Parser.TestContext test:
+                        stop = this.Visit(test).As<ExprNode>();
+                        break;
+                    case Python3Parser.SliceopContext sliceop:
+                        step = sliceop.test() is null ? null : this.Visit(sliceop.test()).As<ExprNode>();
+                        break;
+                }
+            }
+
+            var args = new ExprListNode(line, new ExprNode[] {
+                start ?? new NullLitExprNode(line),
+                stop ?? new NullLitExprNode(line),
+                step ?? new NullLitExprNode(line),
+            });
+            return new FuncCallExprNode(line, new IdNode(line, "slice"), args);
+        }
+
+        // Builds a comprehension/generator from a testlist_comp whose element
+        // precedes the comp_for clause (list, set and generator forms).
+        private ASTNode BuildComprehension(Python3Parser.Testlist_compContext ctx, string kind)
+        {
+            ExprNode element = ctx.test().Length > 0
+                ? this.Visit(ctx.test(0)).As<ExprNode>()
+                : this.Visit(ctx.star_expr(0)).As<ExprNode>();
+            return this.BuildComprehension(ctx.Start.Line, kind, element, ctx.comp_for());
+        }
+
+        // Represents a comprehension as a synthetic call: <kind>(element, clauses...)
+        // where each clause is itself a call (for/async_for/if). This keeps the
+        // builder consistent with how other Python-specific constructs are lowered.
+        private ASTNode BuildComprehension(int line, string kind, ExprNode element, Python3Parser.Comp_forContext compFor)
+        {
+            var args = new List<ExprNode> { element };
+            args.AddRange(this.CollectComprehensionClauses(compFor));
+            return new FuncCallExprNode(line, new IdNode(line, kind), new ExprListNode(line, args));
+        }
+
+        private List<ExprNode> CollectComprehensionClauses(Python3Parser.Comp_forContext compFor)
+        {
+            var clauses = new List<ExprNode>();
+            Python3Parser.Comp_iterContext? next = this.AddForClause(clauses, compFor);
+            this.CollectClausesFromIter(clauses, next);
+            return clauses;
+        }
+
+        private void CollectClausesFromIter(List<ExprNode> clauses, Python3Parser.Comp_iterContext? iter)
+        {
+            while (iter is not null) {
+                iter = iter.comp_for() is not null
+                    ? this.AddForClause(clauses, iter.comp_for())
+                    : this.AddIfClause(clauses, iter.comp_if());
+            }
+        }
+
+        private Python3Parser.Comp_iterContext? AddForClause(List<ExprNode> clauses, Python3Parser.Comp_forContext ctx)
+        {
+            ExprNode targets = this.Visit(ctx.exprlist()).As<ExprNode>();
+            ExprNode iterable = this.Visit(ctx.or_test()).As<ExprNode>();
+            string id = ctx.ASYNC() is not null ? "async_for" : "for";
+            clauses.Add(new FuncCallExprNode(
+                ctx.Start.Line,
+                new IdNode(ctx.Start.Line, id),
+                new ExprListNode(ctx.Start.Line, new[] { targets, iterable })));
+            return ctx.comp_iter();
+        }
+
+        private Python3Parser.Comp_iterContext? AddIfClause(List<ExprNode> clauses, Python3Parser.Comp_ifContext ctx)
+        {
+            ExprNode cond = this.Visit(ctx.test_nocond()).As<ExprNode>();
+            clauses.Add(new FuncCallExprNode(
+                ctx.Start.Line,
+                new IdNode(ctx.Start.Line, "if"),
+                new ExprListNode(ctx.Start.Line, cond)));
+            return ctx.comp_iter();
         }
 
         private ASTNode VisitExpressionSequence(ParserRuleContext ctx)
@@ -630,33 +1033,41 @@ namespace LINVAST.Imperative.Builders.Python
         private static string UnescapePythonStringContent(string content)
         {
             var result = new StringBuilder(content.Length);
-            for (int i = 0; i < content.Length; i++) {
-                if (content[i] != '\\') {
-                    result.Append(content[i]);
-                    continue;
-                }
-                if (++i >= content.Length) {
-                    result.Append('\\');
-                    break;
-                }
-                switch (content[i]) {
-                    case 'n': result.Append('\n'); break;
-                    case 'r': result.Append('\r'); break;
-                    case 't': result.Append('\t'); break;
-                    case '\\': result.Append('\\'); break;
-                    case '\'': result.Append('\''); break;
-                    case '"': result.Append('"'); break;
-                    case 'a': result.Append('\a'); break;
-                    case 'b': result.Append('\b'); break;
-                    case 'f': result.Append('\f'); break;
-                    case 'v': result.Append('\v'); break;
-                    default:
-                        result.Append('\\');
-                        result.Append(content[i]);
-                        break;
-                }
+            int i = 0;
+            while (i < content.Length) {
+                if (content[i] == '\\')
+                    i = AppendEscape(content, i, result);
+                else
+                    result.Append(content[i++]);
             }
             return result.ToString();
+        }
+
+        // Decodes a single escape sequence beginning at the backslash at index i
+        // and returns the index just past the consumed characters.
+        private static int AppendEscape(string content, int i, StringBuilder result)
+        {
+            if (++i >= content.Length) {
+                result.Append('\\');
+                return i;
+            }
+            switch (content[i]) {
+                case 'n': result.Append('\n'); break;
+                case 'r': result.Append('\r'); break;
+                case 't': result.Append('\t'); break;
+                case '\\': result.Append('\\'); break;
+                case '\'': result.Append('\''); break;
+                case '"': result.Append('"'); break;
+                case 'a': result.Append('\a'); break;
+                case 'b': result.Append('\b'); break;
+                case 'f': result.Append('\f'); break;
+                case 'v': result.Append('\v'); break;
+                default:
+                    result.Append('\\');
+                    result.Append(content[i]);
+                    break;
+            }
+            return i + 1;
         }
     }
 }
