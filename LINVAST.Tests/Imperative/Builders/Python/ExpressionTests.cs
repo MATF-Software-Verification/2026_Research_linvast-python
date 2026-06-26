@@ -118,11 +118,11 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         public void DictComprehensionAssignmentBuildsDictCallWithEntryAndForClause()
         {
             var stat = this.ParseStatement("squares = {x: x ** 2 for x in range(1, 6)}\n");
-            var assign = stat.As<ExprStatNode>().Expression.As<AssignExprNode>();
-            var call = assign.RightOperand.As<FuncCallExprNode>();
+            var decl = stat.As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var call = decl.Initializer!.As<FuncCallExprNode>();
             ExprNode[] args = call.Arguments!.Expressions.ToArray();
 
-            Assert.That(assign.LeftOperand.As<IdNode>().Identifier, Is.EqualTo("squares"));
+            Assert.That(decl.Identifier, Is.EqualTo("squares"));
             Assert.That(call.Identifier, Is.EqualTo("dict"));
 
             var entry = args[0].As<DictEntryNode>();
