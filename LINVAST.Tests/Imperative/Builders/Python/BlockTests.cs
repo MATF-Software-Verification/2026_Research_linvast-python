@@ -19,6 +19,27 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(function.Definition!.Children.Single(), Is.TypeOf<EmptyStatNode>());
         }
 
+        [Test]
+        public void TopLevelSemicolonSeparatedStatementsAreFlattened()
+        {
+            var children = this.builder.BuildFromSource("pass; pass\n").As<SourceNode>().Children.ToList();
+
+            Assert.That(children.Count, Is.EqualTo(2));
+            Assert.That(children[0], Is.TypeOf<EmptyStatNode>());
+            Assert.That(children[1], Is.TypeOf<EmptyStatNode>());
+        }
+
+        [Test]
+        public void SemicolonSeparatedAssignmentsAreFlattened()
+        {
+            var children = this.builder.BuildFromSource("x = 1; y = 2; z = 3\n").As<SourceNode>().Children.ToList();
+
+            Assert.That(children.Count, Is.EqualTo(3));
+            Assert.That(children[0], Is.TypeOf<DeclStatNode>());
+            Assert.That(children[1], Is.TypeOf<DeclStatNode>());
+            Assert.That(children[2], Is.TypeOf<DeclStatNode>());
+        }
+
         private FuncNode ParseFunction(string source)
             => this.builder.BuildFromSource(source).As<SourceNode>().Children.Single().As<FuncNode>();
     }
