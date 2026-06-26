@@ -59,16 +59,22 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
-        public void ChainedComparisonSharesMiddleOperandNode()
+        public void ChainedComparisonDuplicatesMiddleOperandIntoSeparateNodes()
         {
             var expr = this.ParseExpression("a < f() < b").As<LogicExprNode>();
             var left = expr.LeftOperand.As<RelExprNode>();
             var right = expr.RightOperand.As<RelExprNode>();
 
-            // `a < f() < b` desugars to `a < f() and f() < b`, but the shared
-            // f() must be the exact same node so it is only evaluated once.
+            // `a < f() < b` desugars structurally to `a < f() and f() < b`. Each
+            // comparison must own a distinct, fully-parented `f()` subtree:
+            // sharing one instance would break the AST parent invariant because
+            // ASTNode wires `child.Parent = this` in every constructor.
             Assert.That(left.RightOperand, Is.TypeOf<FuncCallExprNode>());
-            Assert.That(left.RightOperand, Is.SameAs(right.LeftOperand));
+            Assert.That(right.LeftOperand, Is.TypeOf<FuncCallExprNode>());
+            Assert.That(left.RightOperand, Is.EqualTo(right.LeftOperand));
+            Assert.That(left.RightOperand, Is.Not.SameAs(right.LeftOperand));
+            Assert.That(left.RightOperand.Parent, Is.SameAs(left));
+            Assert.That(right.LeftOperand.Parent, Is.SameAs(right));
         }
 
         [Test]

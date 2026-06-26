@@ -69,32 +69,35 @@ namespace LINVAST.Imperative.Builders.Python
 
             Python3Parser.Comp_opContext[] ops = ctx.comp_op();
 
-            // Visit each operand exactly once. A chained comparison such as
-            // `a < f() < b` desugars into `a < f() and f() < b`, but Python
-            // evaluates the shared middle operand only once. By building every
-            // operand a single time and reusing the same node instance for the
-            // two comparisons it participates in, the produced AST references
-            // `f()` once instead of duplicating (and thus re-evaluating) it.
-            var operands = new ExprNode[exprs.Length];
-            operands[0] = first;
-            for (int i = 1; i < exprs.Length; i++)
-                operands[i] = this.Visit(exprs[i]).As<ExprNode>();
+            // A chained comparison such as `a < f() < b` desugars structurally
+            // into `a < f() and f() < b`, so every interior operand participates
+            // in two comparisons. The two RelExprNodes must NOT share the same
+            // child instance: ASTNode's constructor wires `child.Parent = this`,
+            // so a shared operand would end up parented only to the last
+            // comparison, breaking the AST parent invariant. We therefore build
+            // a fresh, independent subtree for each appearance by re-visiting the
+            // parse tree. This builder only constructs nodes (it does not execute
+            // the program), so re-visiting has no runtime "single evaluation"
+            // implications -- it simply yields a structurally-equal, fully
+            // parented duplicate.
+            ExprNode Operand(int index)
+                => this.Visit(exprs[index]).As<ExprNode>();
 
             if (ops.Length == 1)
-                return new RelExprNode(ctx.Start.Line, operands[0], this.CreateRelOp(ctx.Start.Line, ops[0]), operands[1]);
+                return new RelExprNode(ctx.Start.Line, first, this.CreateRelOp(ctx.Start.Line, ops[0]), Operand(1));
 
             ExprNode result = new RelExprNode(
                 exprs[0].Start.Line,
-                operands[0],
+                first,
                 this.CreateRelOp(exprs[0].Start.Line, ops[0]),
-                operands[1]);
+                Operand(1));
 
             for (int i = 1; i < ops.Length; i++) {
                 var comparison = new RelExprNode(
                     exprs[i].Start.Line,
-                    operands[i],
+                    Operand(i),
                     this.CreateRelOp(exprs[i].Start.Line, ops[i]),
-                    operands[i + 1]);
+                    Operand(i + 1));
                 result = new LogicExprNode(
                     ctx.Start.Line,
                     result,
