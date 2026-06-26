@@ -482,6 +482,14 @@ namespace LINVAST.Imperative.Builders.Python
 
             while (i < content.Length) {
                 char c = content[i];
+                // A replacement field can hold an arbitrary expression, including
+                // string literals such as f"{'}'}" or f"{'a:b'}". Skip over them
+                // wholesale so that delimiters ({ } : !) appearing inside a quoted
+                // literal are not mistaken for the structure of the field itself.
+                if (c is '\'' or '"') {
+                    i = SkipStringLiteral(content, i);
+                    continue;
+                }
                 if (c is '(' or '[' or '{') {
                     depth++;
                     i++;
@@ -532,6 +540,10 @@ namespace LINVAST.Imperative.Builders.Python
                 int j = specStart;
                 while (j < content.Length) {
                     char c = content[j];
+                    if (c is '\'' or '"') {
+                        j = SkipStringLiteral(content, j);
+                        continue;
+                    }
                     if (c == '{')
                         specDepth++;
                     else if (c == '}') {
@@ -607,6 +619,33 @@ namespace LINVAST.Imperative.Builders.Python
                 return;
             parts.Add(new LitExprNode(line, literal.ToString()));
             literal.Clear();
+        }
+
+        // Returns the index immediately past a string literal that begins at the
+        // quote character at index i. Handles single/double quotes, triple-quoted
+        // literals, and backslash escapes. If the literal is unterminated the end
+        // of the content is returned. This lets the f-string field scanner treat an
+        // embedded literal (e.g. the '}' in f"{'}'}") as opaque text.
+        private static int SkipStringLiteral(string content, int i)
+        {
+            char quote = content[i];
+            bool triple = i + 2 < content.Length && content[i + 1] == quote && content[i + 2] == quote;
+            int j = i + (triple ? 3 : 1);
+            while (j < content.Length) {
+                char c = content[j];
+                if (c == '\\') {
+                    j += 2;
+                    continue;
+                }
+                if (c == quote) {
+                    if (!triple)
+                        return j + 1;
+                    if (j + 2 < content.Length && content[j + 1] == quote && content[j + 2] == quote)
+                        return j + 3;
+                }
+                j++;
+            }
+            return content.Length;
         }
 
         // A single '=' acts as a debug specifier only when it is not part of an

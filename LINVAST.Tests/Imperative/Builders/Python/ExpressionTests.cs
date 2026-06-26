@@ -292,6 +292,75 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(parts[1].As<IdNode>().Identifier, Is.EqualTo("x"));
         }
 
+        [Test]
+        public void FStringFieldCanBeAStringLiteral()
+        {
+            var call = this.ParseExpression("f\"{'test'}\"").As<FuncCallExprNode>();
+
+            Assert.That(call.Identifier, Is.EqualTo("format"));
+            Assert.That(call.Arguments!.Expressions.Single().As<LitExprNode>().Value, Is.EqualTo("test"));
+        }
+
+        [Test]
+        public void FStringFieldCanBeAStringConcatenationExpression()
+        {
+            var call = this.ParseExpression("f\"{'Hello, ' + 'world'}\"").As<FuncCallExprNode>();
+            var arithm = call.Arguments!.Expressions.Single().As<ArithmExprNode>();
+
+            Assert.That(arithm.LeftOperand.As<LitExprNode>().Value, Is.EqualTo("Hello, "));
+            Assert.That(arithm.RightOperand.As<LitExprNode>().Value, Is.EqualTo("world"));
+        }
+
+        [Test]
+        public void FStringFieldCanBeAnArithmeticExpression()
+        {
+            var call = this.ParseExpression("f\"{3 + 2}\"").As<FuncCallExprNode>();
+
+            Assert.That(call.Arguments!.Expressions.Single(), Is.TypeOf<ArithmExprNode>());
+        }
+
+        [Test]
+        public void FStringFieldStringLiteralContainingClosingBraceIsNotTruncated()
+        {
+            // The '}' lives inside the embedded literal, so it must not be treated
+            // as the end of the replacement field.
+            var call = this.ParseExpression("f\"{'}'}\"").As<FuncCallExprNode>();
+
+            Assert.That(call.Arguments!.Expressions.Single().As<LitExprNode>().Value, Is.EqualTo("}"));
+        }
+
+        [Test]
+        public void FStringFieldStringLiteralContainingColonIsNotTreatedAsFormatSpec()
+        {
+            // The ':' is part of the literal value, not a format-spec separator.
+            var call = this.ParseExpression("f\"{'a:b'}\"").As<FuncCallExprNode>();
+
+            Assert.That(call.Arguments!.Expressions.Single().As<LitExprNode>().Value, Is.EqualTo("a:b"));
+        }
+
+        [Test]
+        public void FStringFieldStringLiteralContainingBangIsNotTreatedAsConversion()
+        {
+            // The '!' is part of the literal value, not a conversion marker.
+            var call = this.ParseExpression("f\"{'a!b'}\"").As<FuncCallExprNode>();
+
+            Assert.That(call.Arguments!.Expressions.Single().As<LitExprNode>().Value, Is.EqualTo("a!b"));
+        }
+
+        [Test]
+        public void FStringStringFieldStillHonoursTrailingFormatSpec()
+        {
+            // A literal that contains a ':' followed by a real format spec: only the
+            // last ':' outside the quotes introduces the spec.
+            var call = this.ParseExpression("f\"{'a:b':>10}\"").As<FuncCallExprNode>();
+            var field = call.Arguments!.Expressions.Single().As<FuncCallExprNode>();
+            ExprNode[] args = field.Arguments!.Expressions.ToArray();
+
+            Assert.That(field.Identifier, Is.EqualTo("format_field"));
+            Assert.That(args[0].As<LitExprNode>().Value, Is.EqualTo("a:b"));
+            Assert.That(args[2].As<LitExprNode>().Value, Is.EqualTo(">10"));
+        }
+
         private ExprNode ParseExpression(string source)
             => this.builder.BuildFromSource(source, parser => parser.test()).As<ExprNode>();
 
