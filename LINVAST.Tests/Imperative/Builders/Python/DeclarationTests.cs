@@ -328,6 +328,28 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
+        public void EmptyTupleAndEmptyListAssignmentsDifferInInitializerType()
+        {
+            var tupleInit = this.ParseSingle<DeclStatNode>("x = ()\n")
+                .DeclaratorList.Declarators.Single().As<VarDeclNode>().Initializer!;
+            var listInit = this.ParseSingle<DeclStatNode>("y = []\n")
+                .DeclaratorList.Declarators.Single().As<VarDeclNode>().Initializer!;
+
+            Assert.That(tupleInit, Is.TypeOf<TupleInitNode>());
+            Assert.That(listInit, Is.TypeOf<ArrInitExprNode>());
+        }
+
+        [Test]
+        public void SingleElementTupleAssignmentPreservesTupleType()
+        {
+            var init = this.ParseSingle<DeclStatNode>("x = (1,)\n")
+                .DeclaratorList.Declarators.Single().As<VarDeclNode>().Initializer!;
+
+            Assert.That(init, Is.TypeOf<TupleInitNode>());
+            Assert.That(init.As<TupleInitNode>().Expressions.Single().As<LitExprNode>().Value, Is.EqualTo(1L));
+        }
+
+        [Test]
         public void AugmentedFloorDivAssignmentIsSupported()
         {
             var nodes = this.builder.BuildFromSource("a = 0\na //= b\n").As<SourceNode>().Children.ToList();

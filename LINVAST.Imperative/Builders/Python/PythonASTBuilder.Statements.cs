@@ -564,12 +564,29 @@ namespace LINVAST.Imperative.Builders.Python
             ASTNode visited = this.Visit(ctx.exprlist());
             if (visited is ExprListNode exprList) {
                 VarDeclNode[] varDecls = exprList.Expressions
-                    .Select(e => new VarDeclNode(e.Line, e.As<IdNode>()))
+                    .Select(this.CreateForLoopTarget)
                     .ToArray();
                 return varDecls.Length == 1 ? varDecls[0] : new DeclListNode(ctx.Start.Line, varDecls);
             }
 
-            return new VarDeclNode(ctx.Start.Line, visited.As<IdNode>());
+            return this.CreateForLoopTarget(visited.As<ExprNode>());
+        }
+
+        // Builds the declaration for a single for-loop target. Attribute targets
+        // such as `obj.x` are already lowered to a dotted IdNode and behave like
+        // plain identifiers. Other non-identifier targets (e.g. subscripts like
+        // `arr[0]`) cannot be represented by the current for-loop declaration AST,
+        // so we fail with a clear error instead of a blind `.As<IdNode>()` cast
+        // that would surface as an opaque NodeMismatchException.
+        private VarDeclNode CreateForLoopTarget(ExprNode target)
+        {
+            if (target is IdNode id)
+                return new VarDeclNode(id.Line, id);
+
+            throw new SyntaxErrorException(
+                $"Unsupported for-loop target '{target.GetText()}' of type {target.GetType().Name}; " +
+                "only identifier and tuple targets are supported.",
+                target.Line, 0);
         }
 
         private BlockStatNode AppendLoopElse(BlockStatNode body, StatNode elseBlock, int line)

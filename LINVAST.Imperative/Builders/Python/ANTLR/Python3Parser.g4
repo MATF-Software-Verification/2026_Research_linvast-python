@@ -86,7 +86,7 @@ parameters
 
 typedargslist
     : (
-        tfpdef ('=' test)? (',' tfpdef ('=' test)?)* (
+        tfpdef ('=' test)? (',' (tfpdef ('=' test)? | '/'))* (
             ',' (
                 '*' tfpdef? (',' tfpdef ('=' test)?)* (',' ('**' tfpdef ','?)?)?
                 | '**' tfpdef ','?
@@ -103,7 +103,7 @@ tfpdef
 
 varargslist
     : (
-        vfpdef ('=' test)? (',' vfpdef ('=' test)?)* (
+        vfpdef ('=' test)? (',' (vfpdef ('=' test)? | '/'))* (
             ',' (
                 '*' vfpdef? (',' vfpdef ('=' test)?)* (',' ('**' vfpdef ','?)?)?
                 | '**' vfpdef (',')?

@@ -164,6 +164,23 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
+        public void ForLoopWithIdentifierTargetBuildsForStatNode()
+        {
+            var forStat = this.ParseStatement("for x in xs:\n    pass\n").As<ForStatNode>();
+
+            Assert.That(forStat.ForDeclaration!.As<VarDeclNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(forStat.Condition.As<IdNode>().Identifier, Is.EqualTo("xs"));
+        }
+
+        [Test]
+        public void ForLoopWithAttributeTargetIsRepresentedAsDottedIdentifier()
+        {
+            var forStat = this.ParseStatement("for obj.x in xs:\n    pass\n").As<ForStatNode>();
+
+            Assert.That(forStat.ForDeclaration!.As<VarDeclNode>().Identifier, Is.EqualTo("obj.x"));
+        }
+
+        [Test]
         public void AsyncForBuildsAsyncStatNode()
         {
             var asyncFor = this.ParseStatement("async for x in items:\n    pass\n").As<AsyncStatNode>();

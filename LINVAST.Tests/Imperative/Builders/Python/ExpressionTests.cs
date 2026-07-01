@@ -437,6 +437,38 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         public void RawStringPreservesBackslashEscapes()
             => this.AssertExpressionValue("r\"\\n\"", "\\n");
 
+        [Test]
+        public void EmptyTupleAndEmptyListProduceDistinctNodes()
+        {
+            Assert.That(this.ParseExpression("()"), Is.TypeOf<TupleInitNode>());
+            Assert.That(this.ParseExpression("[]"), Is.TypeOf<ArrInitExprNode>());
+        }
+
+        [Test]
+        public void SingleElementTupleDiffersFromGroupedExpression()
+        {
+            Assert.That(this.ParseExpression("(x)"), Is.TypeOf<IdNode>());
+
+            var tuple = this.ParseExpression("(x,)").As<TupleInitNode>();
+            Assert.That(tuple.Expressions.Single().As<IdNode>().Identifier, Is.EqualTo("x"));
+        }
+
+        [Test]
+        public void MultiElementParenthesizedExpressionBuildsTuple()
+        {
+            var tuple = this.ParseExpression("(1, 2)").As<TupleInitNode>();
+
+            Assert.That(tuple.Expressions.Count(), Is.EqualTo(2));
+        }
+
+        [Test]
+        public void ReturnSingleElementTupleBuildsTuple()
+        {
+            var stat = this.ParseStatement("return (value,)\n").As<JumpStatNode>();
+
+            Assert.That(stat.ReturnExpr, Is.TypeOf<TupleInitNode>());
+        }
+
         private ExprNode ParseExpression(string source)
             => this.builder.BuildFromSource(source, parser => parser.test()).As<ExprNode>();
 

@@ -174,8 +174,9 @@ namespace LINVAST.Imperative.Builders.Python
                 if (ctx.yield_expr() is not null)
                     return this.Visit(ctx.yield_expr());
                 if (ctx.testlist_comp() is not null)
-                    return this.Visit(ctx.testlist_comp());
-                return new ArrInitExprNode(ctx.Start.Line);
+                    return this.BuildParenthesizedExpression(ctx.testlist_comp());
+                // `()` is the empty tuple, distinct from the empty list `[]`.
+                return new TupleInitNode(ctx.Start.Line);
             }
 
             if (ctx.OPEN_BRACK() is not null) {
@@ -899,6 +900,22 @@ namespace LINVAST.Imperative.Builders.Python
                 return items[0];
 
             return new ArrInitExprNode(ctx.Start.Line, items);
+        }
+
+        // Handles a parenthesized `testlist_comp`. `(x)` is a grouped expression
+        // and unwraps to `x`, whereas the presence of any comma makes it a tuple
+        // (`(x,)`, `(1, 2)`, ...). A generator expression is handled separately.
+        private ASTNode BuildParenthesizedExpression(Python3Parser.Testlist_compContext ctx)
+        {
+            if (ctx.comp_for() is not null)
+                return this.BuildComprehension(ctx, "generator");
+
+            List<ExprNode> items = this.CollectOrderedExpressions(ctx);
+            bool hasComma = ctx.children.Any(c => c is ITerminalNode terminal && terminal.GetText() == ",");
+            if (items.Count == 1 && !hasComma)
+                return items[0];
+
+            return new TupleInitNode(ctx.Start.Line, items);
         }
 
         private List<ExprNode> CollectOrderedExpressions(ParserRuleContext ctx)

@@ -21,5 +21,12 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(() => this.builder.BuildFromSource("a, *b, *c = 1, 2, 3\n"),
                 Throws.InstanceOf<SyntaxErrorException>());
         }
+
+        [Test]
+        public void ForLoopWithSubscriptTargetThrowsSyntaxErrorException()
+        {
+            Assert.That(() => this.builder.BuildFromSource("for arr[0] in xs:\n    pass\n"),
+                Throws.InstanceOf<SyntaxErrorException>());
+        }
     }
 }

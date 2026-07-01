@@ -107,6 +107,51 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
+        public void PositionalOnlySeparatorTagsPrecedingParameters()
+        {
+            var parameters = this.Parse<FuncParamsNode>("(a, /, b)", parser => parser.parameters());
+
+            Assert.That(parameters.Parameters.Count(), Is.EqualTo(2));
+            Assert.That(parameters.Parameters.ElementAt(0).Declarator.Identifier, Is.EqualTo("a"));
+            Assert.That(parameters.Parameters.ElementAt(0).Tags.Select(t => t.Identifier), Does.Contain("posonly"));
+            Assert.That(parameters.Parameters.ElementAt(1).Declarator.Identifier, Is.EqualTo("b"));
+            Assert.That(parameters.Parameters.ElementAt(1).Tags, Is.Empty);
+        }
+
+        [Test]
+        public void PositionalOnlyWithoutTrailingParametersIsTagged()
+        {
+            var parameters = this.Parse<FuncParamsNode>("(a, /)", parser => parser.parameters());
+
+            Assert.That(parameters.Parameters.Single().Declarator.Identifier, Is.EqualTo("a"));
+            Assert.That(parameters.Parameters.Single().Tags.Single().Identifier, Is.EqualTo("posonly"));
+        }
+
+        [Test]
+        public void PositionalOnlyCombinesWithKeywordOnlyParameter()
+        {
+            var parameters = this.Parse<FuncParamsNode>("(a, /, b, *, c)", parser => parser.parameters());
+
+            Assert.That(parameters.Parameters.Count(), Is.EqualTo(3));
+            Assert.That(parameters.Parameters.ElementAt(0).Tags.Select(t => t.Identifier), Does.Contain("posonly"));
+            Assert.That(parameters.Parameters.ElementAt(1).Tags, Is.Empty);
+            Assert.That(parameters.Parameters.ElementAt(2).Declarator.Identifier, Is.EqualTo("c"));
+            Assert.That(parameters.Parameters.ElementAt(2).Tags, Is.Empty);
+        }
+
+        [Test]
+        public void PositionalOnlyCombinesWithArgsAndKwargs()
+        {
+            var parameters = this.Parse<FuncParamsNode>("(a, /, *args, **kwargs)", parser => parser.parameters());
+
+            Assert.That(parameters.Parameters.Count(), Is.EqualTo(3));
+            Assert.That(parameters.Parameters.ElementAt(0).Tags.Select(t => t.Identifier), Does.Contain("posonly"));
+            Assert.That(parameters.Parameters.ElementAt(1).Tags.Single().Identifier, Is.EqualTo("args"));
+            Assert.That(parameters.Parameters.ElementAt(2).Tags.Single().Identifier, Is.EqualTo("kwargs"));
+            Assert.That(parameters.IsVariadic, Is.True);
+        }
+
+        [Test]
         public void DecoratorBuildsTagNode()
         {
             var decorator = this.Parse<TagNode>("@route.get(\"/items\")\n", parser => parser.decorator());

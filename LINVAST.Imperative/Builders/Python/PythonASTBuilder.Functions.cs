@@ -127,6 +127,17 @@ namespace LINVAST.Imperative.Builders.Python
             bool variadic = false;
             string? prefix = null;
 
+            // A '/' separator (PEP 570) marks every preceding parameter as
+            // positional-only. Locate it up front so those parameters can be
+            // tagged as we build them.
+            int slashIndex = -1;
+            for (int i = 0; i < ctx.ChildCount; i++) {
+                if (ctx.GetChild(i) is ITerminalNode slash && slash.GetText() == "/") {
+                    slashIndex = i;
+                    break;
+                }
+            }
+
             for (int i = 0; i < ctx.ChildCount; i++) {
                 IParseTree child = ctx.GetChild(i);
                 if (child is ITerminalNode terminal) {
@@ -138,10 +149,11 @@ namespace LINVAST.Imperative.Builders.Python
                     continue;
                 }
 
+                bool positionalOnly = slashIndex >= 0 && i < slashIndex;
                 FuncParamNode? param = child switch
                 {
-                    Python3Parser.TfpdefContext typed => this.CreateParam(typed, this.FindDefaultValue(ctx, i), prefix),
-                    Python3Parser.VfpdefContext untyped => this.CreateParam(untyped, this.FindDefaultValue(ctx, i), prefix),
+                    Python3Parser.TfpdefContext typed => this.CreateParam(typed, this.FindDefaultValue(ctx, i), prefix, positionalOnly),
+                    Python3Parser.VfpdefContext untyped => this.CreateParam(untyped, this.FindDefaultValue(ctx, i), prefix, positionalOnly),
                     _ => null,
                 };
 
@@ -168,18 +180,18 @@ namespace LINVAST.Imperative.Builders.Python
                 : null;
         }
 
-        private FuncParamNode CreateParam(Python3Parser.TfpdefContext ctx, ExprNode? initializer = null, string? prefix = null)
+        private FuncParamNode CreateParam(Python3Parser.TfpdefContext ctx, ExprNode? initializer = null, string? prefix = null, bool positionalOnly = false)
         {
             string typeName = ctx.test() is null ? "object" : ctx.test().GetText();
-            return this.CreateParam(ctx.Start.Line, ctx.name().GetText(), typeName, initializer, prefix);
+            return this.CreateParam(ctx.Start.Line, ctx.name().GetText(), typeName, initializer, prefix, positionalOnly);
         }
 
-        private FuncParamNode CreateParam(Python3Parser.VfpdefContext ctx, ExprNode? initializer = null, string? prefix = null)
-            => this.CreateParam(ctx.Start.Line, ctx.name().GetText(), "object", initializer, prefix);
+        private FuncParamNode CreateParam(Python3Parser.VfpdefContext ctx, ExprNode? initializer = null, string? prefix = null, bool positionalOnly = false)
+            => this.CreateParam(ctx.Start.Line, ctx.name().GetText(), "object", initializer, prefix, positionalOnly);
 
-        private FuncParamNode CreateParam(int line, string name, string typeName, ExprNode? initializer, string? prefix)
+        private FuncParamNode CreateParam(int line, string name, string typeName, ExprNode? initializer, string? prefix, bool positionalOnly = false)
         {
-            var tags = this.ParamTags(line, prefix).ToArray();
+            var tags = this.ParamTags(line, prefix, positionalOnly).ToArray();
             var declSpecs = new DeclSpecsNode(line, typeName);
             var id = new IdNode(line, name);
             VarDeclNode decl = initializer is null
@@ -190,8 +202,10 @@ namespace LINVAST.Imperative.Builders.Python
                 : new FuncParamNode(line, declSpecs, decl);
         }
 
-        private IEnumerable<TagNode> ParamTags(int line, string? prefix)
+        private IEnumerable<TagNode> ParamTags(int line, string? prefix, bool positionalOnly)
         {
+            if (positionalOnly)
+                yield return new TagNode(line, "posonly");
             if (prefix == "*")
                 yield return new TagNode(line, "args");
             else if (prefix == "**")
