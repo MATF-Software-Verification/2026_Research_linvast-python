@@ -126,7 +126,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(call.Identifier, Is.EqualTo("dict"));
 
             var entry = args[0].As<DictEntryNode>();
-            Assert.That(entry.Key.Identifier, Is.EqualTo("x"));
+            Assert.That(entry.Key.As<IdNode>().Identifier, Is.EqualTo("x"));
             Assert.That(entry.Value, Is.TypeOf<ArithmExprNode>());
 
             var forClause = args[1].As<FuncCallExprNode>();
@@ -467,6 +467,74 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             var stat = this.ParseStatement("return (value,)\n").As<JumpStatNode>();
 
             Assert.That(stat.ReturnExpr, Is.TypeOf<TupleInitNode>());
+        }
+
+        [Test]
+        public void DictLiteralPreservesSpreadOrderingBetweenEntries()
+        {
+            var dict = this.ParseExpression("{a: 1, **d, b: 2}").As<DictInitNode>();
+            DictEntryNode[] entries = dict.Entries.ToArray();
+
+            Assert.That(entries.Length, Is.EqualTo(3));
+            Assert.That(entries[0].Key.As<IdNode>().Identifier, Is.EqualTo("a"));
+            Assert.That(entries[1].Key.As<IdNode>().Identifier, Is.EqualTo("**"));
+            Assert.That(entries[1].Value.As<IdNode>().Identifier, Is.EqualTo("d"));
+            Assert.That(entries[2].Key.As<IdNode>().Identifier, Is.EqualTo("b"));
+        }
+
+        [Test]
+        public void DictLiteralLeadingSpreadIsPreserved()
+        {
+            var entries = this.ParseExpression("{**d, a: 1}").As<DictInitNode>().Entries.ToArray();
+
+            Assert.That(entries[0].Key.As<IdNode>().Identifier, Is.EqualTo("**"));
+            Assert.That(entries[1].Key.As<IdNode>().Identifier, Is.EqualTo("a"));
+        }
+
+        [Test]
+        public void DictLiteralTrailingSpreadIsPreserved()
+        {
+            var entries = this.ParseExpression("{a: 1, **d}").As<DictInitNode>().Entries.ToArray();
+
+            Assert.That(entries[0].Key.As<IdNode>().Identifier, Is.EqualTo("a"));
+            Assert.That(entries[1].Key.As<IdNode>().Identifier, Is.EqualTo("**"));
+        }
+
+        [Test]
+        public void DictLiteralInterleavedSpreadsPreserveSourceOrder()
+        {
+            var entries = this.ParseExpression("{**d1, a: 1, **d2, b: 2}").As<DictInitNode>().Entries.ToArray();
+
+            Assert.That(entries.Select(e => e.Key.As<IdNode>().Identifier),
+                Is.EqualTo(new[] { "**", "a", "**", "b" }));
+            Assert.That(entries[0].Value.As<IdNode>().Identifier, Is.EqualTo("d1"));
+            Assert.That(entries[2].Value.As<IdNode>().Identifier, Is.EqualTo("d2"));
+        }
+
+        [Test]
+        public void DictDoubleQuotedStringKeyPreservesValueWithoutQuotes()
+        {
+            var entry = this.ParseExpression("{\"key\": 1}").As<DictInitNode>().Entries.Single();
+
+            Assert.That(entry.Key, Is.TypeOf<LitExprNode>());
+            Assert.That(entry.Key.As<LitExprNode>().Value, Is.EqualTo("key"));
+        }
+
+        [Test]
+        public void DictSingleQuotedStringKeyPreservesValueWithoutQuotes()
+        {
+            var entry = this.ParseExpression("{'key': 1}").As<DictInitNode>().Entries.Single();
+
+            Assert.That(entry.Key.As<LitExprNode>().Value, Is.EqualTo("key"));
+        }
+
+        [Test]
+        public void DictNonIdentifierStringKeysArePreserved()
+        {
+            Assert.That(this.ParseExpression("{\"a-b\": 1}").As<DictInitNode>().Entries.Single()
+                .Key.As<LitExprNode>().Value, Is.EqualTo("a-b"));
+            Assert.That(this.ParseExpression("{\"with space\": 1}").As<DictInitNode>().Entries.Single()
+                .Key.As<LitExprNode>().Value, Is.EqualTo("with space"));
         }
 
         private ExprNode ParseExpression(string source)

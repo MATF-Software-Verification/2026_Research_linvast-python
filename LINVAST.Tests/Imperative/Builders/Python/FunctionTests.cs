@@ -50,6 +50,25 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
+        public void MultipleDecoratorsPreserveAllTags()
+        {
+            var source = this.Parse<SourceNode>("@first\n@second\ndef make() -> int:\n    return 1\n");
+            var function = source.Children.Single().As<FuncNode>();
+
+            Assert.That(function.Tags.Select(t => t.Identifier), Is.EqualTo(new[] { "first", "second" }));
+        }
+
+        [Test]
+        public void NestedFunctionIsBuiltInsideOuterDefinition()
+        {
+            var source = this.Parse<SourceNode>("def outer() -> int:\n    def inner() -> int:\n        return 1\n    return inner()\n");
+            var outer = source.Children.Single().As<FuncNode>();
+
+            Assert.That(outer.Identifier, Is.EqualTo("outer"));
+            Assert.That(outer.Definition!.Children.OfType<FuncNode>().Single().Identifier, Is.EqualTo("inner"));
+        }
+
+        [Test]
         public void AsyncFunctionPreservesAsyncTag()
         {
             var source = this.Parse<SourceNode>("async def load() -> int:\n    return 1\n");

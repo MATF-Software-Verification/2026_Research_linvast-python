@@ -24,17 +24,17 @@ namespace LINVAST.Imperative.Nodes
     public sealed class DictEntryNode : ExprNode
     {
         [JsonIgnore]
-        public IdNode Key => this.Children[0].As<IdNode>();
+        public ExprNode Key => this.Children[0].As<ExprNode>();
 
         [JsonIgnore]
         public ExprNode Value => this.Children[1].As<ExprNode>();
 
 
-        public DictEntryNode(int line, IdNode key, ExprNode value)
+        public DictEntryNode(int line, ExprNode key, ExprNode value)
             : base(line, key, value) { }
 
 
-        public override string GetText() => $"'{this.Key}' : {this.Value}";
+        public override string GetText() => $"{this.Key.GetText()} : {this.Value.GetText()}";
     }
 
     public sealed class DictInitNode : ExprListNode

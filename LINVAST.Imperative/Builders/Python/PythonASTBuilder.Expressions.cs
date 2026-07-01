@@ -295,23 +295,8 @@ namespace LINVAST.Imperative.Builders.Python
                 return this.BuildComprehension(ctx.Start.Line, "set", element, ctx.comp_for());
             }
 
-            if (ctx.COLON() is { Length: > 0 } || ctx.POWER() is { Length: > 0 }) {
-                var entries = new List<DictEntryNode>();
-                if (ctx.POWER() is not null) {
-                    foreach (Python3Parser.ExprContext spread in ctx.expr())
-                        entries.Add(this.CreateDictSpreadEntry(ctx.Start.Line, spread));
-                }
-
-                Python3Parser.TestContext[] tests = ctx.test();
-                for (int i = 0; i + 1 < tests.Length; i += 2) {
-                    entries.Add(this.CreateDictEntry(
-                        ctx.Start.Line,
-                        this.Visit(tests[i]).As<ExprNode>(),
-                        this.Visit(tests[i + 1]).As<ExprNode>()));
-                }
-
-                return new DictInitNode(ctx.Start.Line, entries);
-            }
+            if (ctx.COLON() is { Length: > 0 } || ctx.POWER() is { Length: > 0 })
+                return new DictInitNode(ctx.Start.Line, this.BuildDictEntries(ctx));
 
             return new ArrInitExprNode(ctx.Start.Line, this.CollectOrderedExpressions(ctx));
         }
@@ -937,17 +922,45 @@ namespace LINVAST.Imperative.Builders.Python
             return items;
         }
 
+        // Builds dict entries preserving the source order of `key: value` pairs and
+        // `**spread` entries. The grammar interleaves `test ':' test` and `'**' expr`
+        // items, so we walk the children in order instead of grouping all spreads
+        // first (which would reorder e.g. `{a: 1, **d, b: 2}`).
+        private List<DictEntryNode> BuildDictEntries(Python3Parser.DictorsetmakerContext ctx)
+        {
+            var entries = new List<DictEntryNode>();
+            IList<IParseTree> children = ctx.children;
+            for (int i = 0; i < children.Count; i++) {
+                switch (children[i]) {
+                    case ITerminalNode term when term.Symbol.Type == Python3Parser.POWER:
+                        entries.Add(this.CreateDictSpreadEntry(
+                            ctx.Start.Line, (Python3Parser.ExprContext)children[i + 1]));
+                        i++;
+                        break;
+                    case Python3Parser.TestContext keyCtx:
+                        // A `test ':' test` entry: children are key, ':', value.
+                        entries.Add(this.CreateDictEntry(
+                            ctx.Start.Line,
+                            this.Visit(keyCtx).As<ExprNode>(),
+                            this.Visit((Python3Parser.TestContext)children[i + 2]).As<ExprNode>()));
+                        i += 2;
+                        break;
+                }
+            }
+            return entries;
+        }
+
+        // The key expression is preserved as-is (e.g. an IdNode for `a`, a string
+        // LitExprNode for `"key"`), so string keys keep their literal value without
+        // the surrounding quote characters.
         private DictEntryNode CreateDictEntry(int line, ExprNode keyExpr, ExprNode valueExpr) =>
-            new(line, this.ToDictKeyId(keyExpr, line), valueExpr);
+            new(line, keyExpr, valueExpr);
 
         private DictEntryNode CreateDictSpreadEntry(int line, Python3Parser.ExprContext spread) =>
             new(line, new IdNode(line, "**"), this.Visit(spread).As<ExprNode>());
 
         private IdNode ToCallableId(ExprNode expr, int line) =>
             expr as IdNode ?? new IdNode(line, expr.GetText());
-
-        private IdNode ToDictKeyId(ExprNode keyExpr, int line) =>
-            keyExpr as IdNode ?? new IdNode(line, keyExpr.GetText());
 
         private static LitExprNode ParseNumber(int line, string text)
         {
