@@ -361,6 +361,82 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(args[2].As<LitExprNode>().Value, Is.EqualTo(">10"));
         }
 
+        [Test]
+        public void ChainedOrBuildsDistinctOperatorInstancesWithValidParents()
+        {
+            var expr = this.ParseExpression("a or b or c").As<LogicExprNode>();
+            var left = expr.LeftOperand.As<LogicExprNode>();
+
+            Assert.That(expr.RightOperand.As<IdNode>().Identifier, Is.EqualTo("c"));
+            Assert.That(left.LeftOperand.As<IdNode>().Identifier, Is.EqualTo("a"));
+            Assert.That(left.RightOperand.As<IdNode>().Identifier, Is.EqualTo("b"));
+
+            // Each binary logic expression must own its own operator instance;
+            // sharing one node would re-parent it and break the AST invariant.
+            Assert.That(expr.Operator, Is.Not.SameAs(left.Operator));
+            Assert.That(expr.Operator.Parent, Is.SameAs(expr));
+            Assert.That(left.Operator.Parent, Is.SameAs(left));
+        }
+
+        [Test]
+        public void ChainedAndBuildsDistinctOperatorInstancesWithValidParents()
+        {
+            var expr = this.ParseExpression("a and b and c").As<LogicExprNode>();
+            var left = expr.LeftOperand.As<LogicExprNode>();
+
+            Assert.That(expr.Operator.Symbol, Is.EqualTo("and"));
+            Assert.That(left.Operator.Symbol, Is.EqualTo("and"));
+            Assert.That(expr.Operator, Is.Not.SameAs(left.Operator));
+            Assert.That(expr.Operator.Parent, Is.SameAs(expr));
+            Assert.That(left.Operator.Parent, Is.SameAs(left));
+        }
+
+        [Test]
+        public void MixedBooleanExpressionKeepsOperatorParentsValid()
+        {
+            // `and` binds tighter than `or`, so this parses as `a or (b and c)`.
+            var expr = this.ParseExpression("a or b and c").As<LogicExprNode>();
+            var right = expr.RightOperand.As<LogicExprNode>();
+
+            Assert.That(expr.Operator.Symbol, Is.EqualTo("or"));
+            Assert.That(right.Operator.Symbol, Is.EqualTo("and"));
+            Assert.That(expr.Operator, Is.Not.SameAs(right.Operator));
+            Assert.That(expr.Operator.Parent, Is.SameAs(expr));
+            Assert.That(right.Operator.Parent, Is.SameAs(right));
+        }
+
+        [Test]
+        public void StringHexEscapeIsDecoded()
+            => this.AssertExpressionValue("\"\\x41\"", "A");
+
+        [Test]
+        public void StringShortUnicodeEscapeIsDecoded()
+            => this.AssertExpressionValue("\"\\u0041\"", "A");
+
+        [Test]
+        public void StringLongUnicodeEscapeIsDecoded()
+            => this.AssertExpressionValue("\"\\U00000041\"", "A");
+
+        [Test]
+        public void StringOctalEscapeIsDecoded()
+            => this.AssertExpressionValue("\"\\101\"", "A");
+
+        [Test]
+        public void StringNullEscapeIsDecoded()
+            => this.AssertExpressionValue("\"\\0\"", "\0");
+
+        [Test]
+        public void SimpleStringEscapesStillWork()
+        {
+            this.AssertExpressionValue("\"a\\nb\"", "a\nb");
+            this.AssertExpressionValue("\"a\\tb\"", "a\tb");
+            this.AssertExpressionValue("\"a\\\\b\"", "a\\b");
+        }
+
+        [Test]
+        public void RawStringPreservesBackslashEscapes()
+            => this.AssertExpressionValue("r\"\\n\"", "\\n");
+
         private ExprNode ParseExpression(string source)
             => this.builder.BuildFromSource(source, parser => parser.test()).As<ExprNode>();
 

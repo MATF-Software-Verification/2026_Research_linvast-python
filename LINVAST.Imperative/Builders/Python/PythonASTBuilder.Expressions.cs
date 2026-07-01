@@ -689,10 +689,15 @@ namespace LINVAST.Imperative.Builders.Python
             if (exprs.Length == 1)
                 return exprs[0];
 
-            var op = BinaryLogicOpNode.FromSymbol(line, symbol);
+            // Each LogicExprNode must own a distinct operator instance: ASTNode's
+            // constructor wires `child.Parent = this`, so a shared operator node
+            // would be re-parented on every iteration, breaking the parent
+            // invariant for all but the last binary logic expression.
             ExprNode result = exprs[0];
-            for (int i = 1; i < exprs.Length; i++)
+            for (int i = 1; i < exprs.Length; i++) {
+                var op = BinaryLogicOpNode.FromSymbol(exprs[i].Line, symbol);
                 result = new LogicExprNode(exprs[i].Line, result, op, exprs[i]);
+            }
             return result;
         }
 
@@ -1051,23 +1056,70 @@ namespace LINVAST.Imperative.Builders.Python
                 result.Append('\\');
                 return i;
             }
-            switch (content[i]) {
-                case 'n': result.Append('\n'); break;
-                case 'r': result.Append('\r'); break;
-                case 't': result.Append('\t'); break;
-                case '\\': result.Append('\\'); break;
-                case '\'': result.Append('\''); break;
-                case '"': result.Append('"'); break;
-                case 'a': result.Append('\a'); break;
-                case 'b': result.Append('\b'); break;
-                case 'f': result.Append('\f'); break;
-                case 'v': result.Append('\v'); break;
+            char c = content[i];
+            switch (c) {
+                case 'n': result.Append('\n'); return i + 1;
+                case 'r': result.Append('\r'); return i + 1;
+                case 't': result.Append('\t'); return i + 1;
+                case '\\': result.Append('\\'); return i + 1;
+                case '\'': result.Append('\''); return i + 1;
+                case '"': result.Append('"'); return i + 1;
+                case 'a': result.Append('\a'); return i + 1;
+                case 'b': result.Append('\b'); return i + 1;
+                case 'f': result.Append('\f'); return i + 1;
+                case 'v': result.Append('\v'); return i + 1;
+                case '0': case '1': case '2': case '3':
+                case '4': case '5': case '6': case '7':
+                    return AppendOctalEscape(content, i, result);
+                case 'x':
+                    return AppendHexEscape(content, i + 1, result, 2, 'x');
+                case 'u':
+                    return AppendHexEscape(content, i + 1, result, 4, 'u');
+                case 'U':
+                    return AppendHexEscape(content, i + 1, result, 8, 'U');
                 default:
+                    // Unrecognized escapes (including `\N{name}`, which we cannot
+                    // resolve without a Unicode name database) are preserved as a
+                    // literal backslash followed by the character, matching
+                    // Python's tolerant handling of unknown escapes.
                     result.Append('\\');
-                    result.Append(content[i]);
-                    break;
+                    result.Append(c);
+                    return i + 1;
             }
-            return i + 1;
+        }
+
+        // Consumes up to three octal digits starting at index i (the first octal
+        // digit) and appends the corresponding character.
+        private static int AppendOctalEscape(string content, int i, StringBuilder result)
+        {
+            int end = i;
+            int value = 0;
+            while (end < content.Length && end - i < 3 && content[end] is >= '0' and <= '7') {
+                value = (value * 8) + (content[end] - '0');
+                end++;
+            }
+            result.Append((char)value);
+            return end;
+        }
+
+        // Consumes exactly `digits` hexadecimal characters starting at index i and
+        // appends the corresponding code point. `marker` is the escape letter
+        // (x/u/U) so an invalid sequence can be preserved verbatim.
+        private static int AppendHexEscape(string content, int i, StringBuilder result, int digits, char marker)
+        {
+            if (i + digits <= content.Length) {
+                string hex = content.Substring(i, digits);
+                if (uint.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint code)
+                    && code <= 0x10FFFF
+                    && !(code is >= 0xD800 and <= 0xDFFF)) {
+                    result.Append(char.ConvertFromUtf32((int)code));
+                    return i + digits;
+                }
+            }
+
+            result.Append('\\');
+            result.Append(marker);
+            return i;
         }
     }
 }

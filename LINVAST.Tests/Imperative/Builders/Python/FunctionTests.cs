@@ -126,6 +126,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         private StatNode ParseStatement(string source)
             => this.builder.BuildFromSource(source).As<SourceNode>().Children.Single().As<StatNode>();
 
+        [Test]
         public void FunctionReturnExpressionTest()
         {
             this.AssertReturnValue("def g() -> int: return 3\n", 3L);

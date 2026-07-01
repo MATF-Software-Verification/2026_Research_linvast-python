@@ -104,7 +104,7 @@ namespace LINVAST.Imperative.Builders.Python
 
             if (ctx.augassign() is not null) {
                 ExprNode target = this.Visit(ctx.testlist_star_expr()[0]).As<ExprNode>();
-                AssignOpNode op = AssignOpNode.FromSymbol(ctx.augassign().Start.Line, ctx.augassign().GetText());
+                AssignOpNode op = CreateAugmentedAssignOp(ctx.augassign().Start.Line, ctx.augassign().GetText());
                 Python3Parser.TestlistContext testlistCtx = ctx.testlist();
                 ExprNode value = testlistCtx is not null
                     ? this.Visit(testlistCtx).As<ExprNode>()
@@ -122,11 +122,18 @@ namespace LINVAST.Imperative.Builders.Python
                     .Where(c => c is ParserRuleContext)
                     .ToList();
 
-                ExprNode rhs = this.Visit(allExprs.Last()).As<ExprNode>();
+                var rhsSource = allExprs.Last();
 
                 var assignments = new List<ASTNode>();
                 for (int i = 0; i < allExprs.Count - 1; i++) {
                     ExprNode lhs = this.Visit(allExprs[i]).As<ExprNode>();
+                    // For chained assignment (`a = b = expr`) each AssignExprNode
+                    // must own an independent RHS subtree. Sharing one instance
+                    // would re-parent it on every iteration because ASTNode wires
+                    // `child.Parent = this`, violating the single-parent invariant.
+                    // Re-visiting the parse tree yields a structurally-equal but
+                    // distinct, fully-parented duplicate.
+                    ExprNode rhs = this.Visit(rhsSource).As<ExprNode>();
                     var assignExpr = new AssignExprNode(ctx.Start.Line, lhs, rhs);
                     assignments.Add(new ExprStatNode(ctx.Start.Line, assignExpr));
                 }
@@ -166,5 +173,18 @@ namespace LINVAST.Imperative.Builders.Python
         public override ASTNode VisitNonlocal_stmt(Python3Parser.Nonlocal_stmtContext ctx) =>
             new NonlocalStatNode(ctx.Start.Line,
                 ctx.name().Select(n => new IdNode(n.Start.Line, n.GetText())));
+
+        // Maps a Python augmented-assignment operator to an AssignOpNode. `//=` and
+        // `@=` are not handled by AssignOpNode.FromSymbol, so they are built here
+        // with the same semantics used for the plain `//` (floor division) and `@`
+        // (mapped to multiplication) binary operators.
+        private static AssignOpNode CreateAugmentedAssignOp(int line, string symbol) =>
+            symbol switch
+            {
+                "//=" => new ComplexAssignOpNode(line, symbol,
+                    (x, y) => Math.Floor(Convert.ToDouble(x) / Convert.ToDouble(y))),
+                "@=" => new ComplexAssignOpNode(line, symbol, BinaryOperations.MultiplyPrimitive),
+                _ => AssignOpNode.FromSymbol(line, symbol),
+            };
     }
 }

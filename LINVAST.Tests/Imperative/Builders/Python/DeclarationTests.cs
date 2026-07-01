@@ -286,5 +286,65 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             var initializer = declaration.Initializer!.As<ArrInitExprNode>();
             Assert.That(initializer.Expressions.Select(e => e.As<LitExprNode>().Value), Is.EqualTo(expectedValues));
         }
+
+        [Test]
+        public void ChainedAssignmentToNewNamesProducesIndependentInitializers()
+        {
+            var nodes = this.builder.BuildFromSource("a = b = 1\n").As<SourceNode>().Children.ToList();
+
+            Assert.That(nodes.Count, Is.EqualTo(2));
+            var firstDecl = nodes[0].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var secondDecl = nodes[1].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+
+            Assert.That(firstDecl.Identifier, Is.EqualTo("a"));
+            Assert.That(secondDecl.Identifier, Is.EqualTo("b"));
+            Assert.That(firstDecl.Initializer!.As<LitExprNode>().Value, Is.EqualTo(1L));
+            Assert.That(secondDecl.Initializer!.As<LitExprNode>().Value, Is.EqualTo(1L));
+
+            // The two targets must not share the same RHS instance; each child
+            // must be parented to its own declarator.
+            Assert.That(firstDecl.Initializer, Is.Not.SameAs(secondDecl.Initializer));
+            Assert.That(firstDecl.Initializer!.Parent, Is.SameAs(firstDecl));
+            Assert.That(secondDecl.Initializer!.Parent, Is.SameAs(secondDecl));
+        }
+
+        [Test]
+        public void ChainedAssignmentWithComplexRhsDuplicatesSubtree()
+        {
+            var nodes = this.builder.BuildFromSource("x = 0\ny = 0\nx = y = c + d\n")
+                .As<SourceNode>().Children.ToList();
+
+            var first = nodes[2].As<ExprStatNode>().Expression.As<AssignExprNode>();
+            var second = nodes[3].As<ExprStatNode>().Expression.As<AssignExprNode>();
+
+            Assert.That(first.LeftOperand.As<IdNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(second.LeftOperand.As<IdNode>().Identifier, Is.EqualTo("y"));
+            Assert.That(first.RightOperand, Is.TypeOf<ArithmExprNode>());
+            Assert.That(second.RightOperand, Is.TypeOf<ArithmExprNode>());
+
+            Assert.That(first.RightOperand, Is.Not.SameAs(second.RightOperand));
+            Assert.That(first.RightOperand.Parent, Is.SameAs(first));
+            Assert.That(second.RightOperand.Parent, Is.SameAs(second));
+        }
+
+        [Test]
+        public void AugmentedFloorDivAssignmentIsSupported()
+        {
+            var nodes = this.builder.BuildFromSource("a = 0\na //= b\n").As<SourceNode>().Children.ToList();
+            var assign = nodes[1].As<ExprStatNode>().Expression.As<AssignExprNode>();
+
+            Assert.That(assign.Operator.Symbol, Is.EqualTo("//="));
+            Assert.That(assign.Operator, Is.TypeOf<ComplexAssignOpNode>());
+        }
+
+        [Test]
+        public void AugmentedMatMulAssignmentIsSupported()
+        {
+            var nodes = this.builder.BuildFromSource("a = 0\na @= b\n").As<SourceNode>().Children.ToList();
+            var assign = nodes[1].As<ExprStatNode>().Expression.As<AssignExprNode>();
+
+            Assert.That(assign.Operator.Symbol, Is.EqualTo("@="));
+            Assert.That(assign.Operator, Is.TypeOf<ComplexAssignOpNode>());
+        }
     }
 }
