@@ -248,7 +248,7 @@ namespace LINVAST.Imperative.Builders.Python
 
         // testlist_star_expr: (test | star_expr) (',' (test | star_expr))* ','?
         public override ASTNode VisitTestlist_star_expr(Python3Parser.Testlist_star_exprContext ctx) =>
-            this.VisitExpressionSequence(ctx);
+            this.VisitTupleExpressionSequence(ctx);
 
         // testlist: test (',' test)* ','?
         public override ASTNode VisitTestlist(Python3Parser.TestlistContext ctx)
@@ -257,7 +257,7 @@ namespace LINVAST.Imperative.Builders.Python
             if (tests.Length == 1 && (ctx.COMMA() is null || ctx.COMMA().Length == 0))
                 return this.Visit(tests[0]);
 
-            return new ArrInitExprNode(
+            return new TupleInitNode(
                 ctx.Start.Line,
                 tests.Select(t => this.Visit(t).As<ExprNode>()));
         }
@@ -885,6 +885,16 @@ namespace LINVAST.Imperative.Builders.Python
                 return items[0];
 
             return new ArrInitExprNode(ctx.Start.Line, items);
+        }
+
+        private ASTNode VisitTupleExpressionSequence(ParserRuleContext ctx)
+        {
+            List<ExprNode> items = this.CollectOrderedExpressions(ctx);
+            bool hasComma = ctx.children.Any(c => c is ITerminalNode terminal && terminal.GetText() == ",");
+            if (items.Count == 1 && !hasComma)
+                return items[0];
+
+            return new TupleInitNode(ctx.Start.Line, items);
         }
 
         // Handles a parenthesized `testlist_comp`. `(x)` is a grouped expression

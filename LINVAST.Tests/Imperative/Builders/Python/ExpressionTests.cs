@@ -470,6 +470,25 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
+        public void ReturnUnparenthesizedSingleElementTupleBuildsTuple()
+        {
+            var stat = this.ParseStatement("return value,\n").As<JumpStatNode>();
+
+            Assert.That(stat.ReturnExpr, Is.TypeOf<TupleInitNode>());
+            Assert.That(stat.ReturnExpr!.As<TupleInitNode>().Expressions.Single().As<IdNode>().Identifier,
+                Is.EqualTo("value"));
+        }
+
+        [Test]
+        public void ReturnUnparenthesizedTupleBuildsTuple()
+        {
+            var stat = this.ParseStatement("return 1, 2\n").As<JumpStatNode>();
+
+            Assert.That(stat.ReturnExpr, Is.TypeOf<TupleInitNode>());
+            Assert.That(stat.ReturnExpr!.As<TupleInitNode>().Expressions.Count(), Is.EqualTo(2));
+        }
+
+        [Test]
         public void DictLiteralPreservesSpreadOrderingBetweenEntries()
         {
             var dict = this.ParseExpression("{a: 1, **d, b: 2}").As<DictInitNode>();

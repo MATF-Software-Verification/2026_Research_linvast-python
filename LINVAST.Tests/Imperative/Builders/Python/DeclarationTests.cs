@@ -128,8 +128,10 @@ namespace LINVAST.Tests.Imperative.Builders.Python
 
             Assert.That(nodes.Single(), Is.TypeOf<ExprStatNode>());
             var assign = nodes.Single().As<ExprStatNode>().Expression.As<AssignExprNode>();
-            Assert.That(assign.LeftOperand.As<ArrInitExprNode>().Expressions.Count(), Is.EqualTo(3));
-            Assert.That(assign.RightOperand.As<ArrInitExprNode>().Expressions.Count(), Is.EqualTo(2));
+            Assert.That(assign.LeftOperand, Is.TypeOf<TupleInitNode>());
+            Assert.That(assign.RightOperand, Is.TypeOf<TupleInitNode>());
+            Assert.That(assign.LeftOperand.As<TupleInitNode>().Expressions.Count(), Is.EqualTo(3));
+            Assert.That(assign.RightOperand.As<TupleInitNode>().Expressions.Count(), Is.EqualTo(2));
         }
 
         [Test]
@@ -146,10 +148,12 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(decl.DeclaratorList.Declarators.Single().As<VarDeclNode>().Initializer!.As<LitExprNode>().Value, Is.EqualTo(0));
 
             var assign = nodes[1].As<ExprStatNode>().Expression.As<AssignExprNode>();
-            Assert.That(assign.LeftOperand.As<ArrInitExprNode>().Expressions.Select(e => e.As<IdNode>().Identifier),
+            Assert.That(assign.LeftOperand, Is.TypeOf<TupleInitNode>());
+            Assert.That(assign.RightOperand, Is.TypeOf<TupleInitNode>());
+            Assert.That(assign.LeftOperand.As<TupleInitNode>().Expressions.Select(e => e.As<IdNode>().Identifier),
                 Is.EqualTo(new[] { "a", "b" }));
-            Assert.That(assign.RightOperand.As<ArrInitExprNode>().Expressions.Select(e => e.As<LitExprNode>().Value),
-                Is.EqualTo(new object[] { 1, 2 }));
+            Assert.That(assign.RightOperand.As<TupleInitNode>().Expressions.Select(e => e.As<LitExprNode>().Value),
+                Is.EqualTo(new object[] { 1L, 2L }));
         }
 
         [Test]
@@ -347,6 +351,48 @@ namespace LINVAST.Tests.Imperative.Builders.Python
 
             Assert.That(init, Is.TypeOf<TupleInitNode>());
             Assert.That(init.As<TupleInitNode>().Expressions.Single().As<LitExprNode>().Value, Is.EqualTo(1L));
+        }
+
+        [Test]
+        public void GroupedExpressionAssignmentDoesNotBuildTuple()
+        {
+            var init = this.ParseSingle<DeclStatNode>("x = (1)\n")
+                .DeclaratorList.Declarators.Single().As<VarDeclNode>().Initializer!;
+
+            Assert.That(init, Is.TypeOf<LitExprNode>());
+            Assert.That(init.As<LitExprNode>().Value, Is.EqualTo(1L));
+        }
+
+        [Test]
+        public void ListLiteralAssignmentStillBuildsArrayInitializer()
+        {
+            var init = this.ParseSingle<DeclStatNode>("x = [1, 2]\n")
+                .DeclaratorList.Declarators.Single().As<VarDeclNode>().Initializer!;
+
+            Assert.That(init, Is.TypeOf<ArrInitExprNode>());
+            Assert.That(init.As<ArrInitExprNode>().Expressions.Select(e => e.As<LitExprNode>().Value),
+                Is.EqualTo(new object[] { 1L, 2L }));
+        }
+
+        [Test]
+        public void UnparenthesizedSingleElementTupleAssignmentPreservesTupleType()
+        {
+            var init = this.ParseSingle<DeclStatNode>("x = 1,\n")
+                .DeclaratorList.Declarators.Single().As<VarDeclNode>().Initializer!;
+
+            Assert.That(init, Is.TypeOf<TupleInitNode>());
+            Assert.That(init.As<TupleInitNode>().Expressions.Single().As<LitExprNode>().Value, Is.EqualTo(1L));
+        }
+
+        [Test]
+        public void UnparenthesizedMultiElementTupleAssignmentPreservesTupleType()
+        {
+            var init = this.ParseSingle<DeclStatNode>("x = 1, 2\n")
+                .DeclaratorList.Declarators.Single().As<VarDeclNode>().Initializer!;
+
+            Assert.That(init, Is.TypeOf<TupleInitNode>());
+            Assert.That(init.As<TupleInitNode>().Expressions.Select(e => e.As<LitExprNode>().Value),
+                Is.EqualTo(new object[] { 1L, 2L }));
         }
 
         [Test]
