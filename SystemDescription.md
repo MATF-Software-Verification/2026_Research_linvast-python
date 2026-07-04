@@ -204,9 +204,9 @@ Kontrola toka se prevodi ovako:
 Novi čvorovi su uvedeni tamo gde bi predstavljanje postojećim čvorovima
 izgubilo bitne informacije o Python programu.
 
-### 4.7 Sintetski pozivi
+### 4.7 Sintetički pozivi
 
-Konstrukcije bez direktnog LINVAST čvora predstavljene su sintetskim pozivima:
+Konstrukcije bez direktnog LINVAST čvora predstavljene su sintetičkim pozivima:
 
 - list comprehension -> `list(...)`,
 - set comprehension -> `set(...)`,
@@ -245,14 +245,3 @@ match value:
 prevodi se u `MatchStatNode` sa `CaseNode` granom. Obrazac `[first, *rest]`
 postaje `PatternSequenceNode`, `*rest` postaje `PatternStarNode`, a uslov
 postaje guard izraz u `CaseNode`.
-
-### 4.9 Ključne odluke
-
-- Korišćen je ANTLR zato što se već koristi u LINVAST-u.
-- Python je dodat kao poseban builder registrovan za `.py`.
-- Postojeći LINVAST čvorovi koriste se kad god je moguće.
-- Novi čvorovi se dodaju samo za konstrukcije koje se ne mogu jasno
-  predstaviti postojećim modelom.
-- Sintetski pozivi koriste se za konstrukcije kao što su comprehension,
-  slicing, `await` i f-stringovi.
-- `PythonASTBuilder` je podeljen na parcijalne fajlove radi preglednosti.
