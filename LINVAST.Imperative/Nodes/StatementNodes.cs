@@ -311,23 +311,6 @@ namespace LINVAST.Imperative.Nodes
         public override string GetText() => $"async {this.Statement.GetText()}";
     }
 
-    public sealed class MatchStatNode : ComplexStatNode
-    {
-        [JsonIgnore]
-        public ExprNode Subject => this.Children[0].As<ExprNode>();
-
-        [JsonIgnore]
-        public IEnumerable<CaseNode> Cases => this.Children.Skip(1).Cast<CaseNode>();
-
-
-        public MatchStatNode(int line, ExprNode subject, IEnumerable<CaseNode> cases)
-            : base(line, new ASTNode[] { subject }.Concat(cases)) { }
-
-
-        public override string GetText()
-            => $"match {this.Subject.GetText()} {{ {string.Join(" ", this.Cases.Select(c => c.GetText()))} }}";
-    }
-
     public sealed class SwitchStatNode : ComplexStatNode
     {
         [JsonIgnore]
