@@ -86,91 +86,143 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
-        public void ListComprehensionBuildsListCall()
+        public void ListComprehensionAssignmentExpandsToInitAndLoop()
         {
-            var call = this.ParseExpression("[x * 2 for x in items]").As<FuncCallExprNode>();
-            ExprNode[] args = call.Arguments!.Expressions.ToArray();
+            var nodes = this.builder.BuildFromSource("doubles = [x * 2 for x in items]\n")
+                .As<SourceNode>().Children.ToArray();
+            var decl = nodes[0].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var loop = nodes[1].As<ForStatNode>();
+            var append = loop.Statement.As<BlockStatNode>().Children.Single()
+                .As<ExprStatNode>().Expression.As<FuncCallExprNode>();
 
-            Assert.That(call.Identifier, Is.EqualTo("list"));
-            Assert.That(args[0], Is.TypeOf<ArithmExprNode>());
-            Assert.That(args[1].As<FuncCallExprNode>().Identifier, Is.EqualTo("for"));
+            Assert.That(decl.Identifier, Is.EqualTo("doubles"));
+            Assert.That(decl.Initializer, Is.TypeOf<ArrInitExprNode>());
+            Assert.That(loop.ForDeclaration, Is.TypeOf<VarDeclNode>());
+            Assert.That(loop.Condition.As<IdNode>().Identifier, Is.EqualTo("items"));
+            Assert.That(append.Identifier, Is.EqualTo("doubles.append"));
+            Assert.That(append.Arguments!.Expressions.Single(), Is.TypeOf<ArithmExprNode>());
         }
 
         [Test]
-        public void MultilineListComprehensionAssignmentBuildsListCallWithFilter()
+        public void ListComprehensionWithMultipleForClausesBuildsNestedLoops()
         {
-            var stat = this.ParseStatement(
+            var nodes = this.builder.BuildFromSource("products = [i * j for i in range(4) for j in range(5)]\n")
+                .As<SourceNode>().Children.ToArray();
+            var decl = nodes[0].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var outerLoop = nodes[1].As<ForStatNode>();
+            var innerLoop = outerLoop.Statement.As<BlockStatNode>().Children.Single().As<ForStatNode>();
+            var append = innerLoop.Statement.As<BlockStatNode>().Children.Single()
+                .As<ExprStatNode>().Expression.As<FuncCallExprNode>();
+
+            Assert.That(decl.Identifier, Is.EqualTo("products"));
+            Assert.That(decl.Initializer, Is.TypeOf<ArrInitExprNode>());
+            Assert.That(outerLoop.ForDeclaration!.As<VarDeclNode>().Identifier, Is.EqualTo("i"));
+            Assert.That(outerLoop.Condition.As<FuncCallExprNode>().Identifier, Is.EqualTo("range"));
+            Assert.That(innerLoop.ForDeclaration!.As<VarDeclNode>().Identifier, Is.EqualTo("j"));
+            Assert.That(innerLoop.Condition.As<FuncCallExprNode>().Identifier, Is.EqualTo("range"));
+            Assert.That(append.Identifier, Is.EqualTo("products.append"));
+            Assert.That(append.Arguments!.Expressions.Single(), Is.TypeOf<ArithmExprNode>());
+        }
+
+        [Test]
+        public void MultilineListComprehensionAssignmentExpandsToInitAndLoopWithFilter()
+        {
+            var nodes = this.builder.BuildFromSource(
                 "active_users = [\n" +
                 "    user.name\n" +
                 "    for user in users\n" +
                 "    if user.active\n" +
-                "]\n");
-            var decl = stat.As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
-            var call = decl.Initializer!.As<FuncCallExprNode>();
-            ExprNode[] args = call.Arguments!.Expressions.ToArray();
+                "]\n").As<SourceNode>().Children.ToArray();
+            var decl = nodes[0].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var loop = nodes[1].As<ForStatNode>();
+            var ifStat = loop.Statement.As<BlockStatNode>().Children.Single().As<IfStatNode>();
+            var append = ifStat.ThenStat.As<BlockStatNode>().Children.Single()
+                .As<ExprStatNode>().Expression.As<FuncCallExprNode>();
 
             Assert.That(decl.Identifier, Is.EqualTo("active_users"));
-            Assert.That(call.Identifier, Is.EqualTo("list"));
-            Assert.That(args[0].As<IdNode>().Identifier, Is.EqualTo("user.name"));
-
-            var forClause = args[1].As<FuncCallExprNode>();
-            ExprNode[] forArgs = forClause.Arguments!.Expressions.ToArray();
-            Assert.That(forClause.Identifier, Is.EqualTo("for"));
-            Assert.That(forArgs[0].As<IdNode>().Identifier, Is.EqualTo("user"));
-            Assert.That(forArgs[1].As<IdNode>().Identifier, Is.EqualTo("users"));
-
-            var ifClause = args[2].As<FuncCallExprNode>();
-            Assert.That(ifClause.Identifier, Is.EqualTo("if"));
-            Assert.That(ifClause.Arguments!.Expressions.Single().As<IdNode>().Identifier, Is.EqualTo("user.active"));
+            Assert.That(decl.Initializer, Is.TypeOf<ArrInitExprNode>());
+            Assert.That(loop.ForDeclaration!.As<VarDeclNode>().Identifier, Is.EqualTo("user"));
+            Assert.That(loop.Condition.As<IdNode>().Identifier, Is.EqualTo("users"));
+            Assert.That(ifStat.Condition.As<IdNode>().Identifier, Is.EqualTo("user.active"));
+            Assert.That(append.Identifier, Is.EqualTo("active_users.append"));
+            Assert.That(append.Arguments!.Expressions.Single().As<IdNode>().Identifier, Is.EqualTo("user.name"));
         }
 
         [Test]
-        public void GeneratorExpressionInParensBuildsGeneratorCall()
+        public void GeneratorExpressionArgumentHoistsTempBeforeCall()
         {
-            var call = this.ParseExpression("(x for x in items)").As<FuncCallExprNode>();
+            var nodes = this.builder.BuildFromSource("total = sum(x for x in xs if x > 0)\n")
+                .As<SourceNode>().Children.ToArray();
+            var tempDecl = nodes[0].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var loop = nodes[1].As<ForStatNode>();
+            var ifStat = loop.Statement.As<BlockStatNode>().Children.Single().As<IfStatNode>();
+            var append = loop.Statement.As<BlockStatNode>().Children.Single()
+                .As<IfStatNode>().ThenStat.As<BlockStatNode>().Children.Single()
+                .As<ExprStatNode>().Expression.As<FuncCallExprNode>();
+            var totalDecl = nodes[2].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var sumCall = totalDecl.Initializer!.As<FuncCallExprNode>();
 
-            Assert.That(call.Identifier, Is.EqualTo("generator"));
-            Assert.That(call.Arguments!.Expressions.ElementAt(1).As<FuncCallExprNode>().Identifier, Is.EqualTo("for"));
+            Assert.That(tempDecl.Identifier, Does.StartWith("__linvast_comp_"));
+            Assert.That(tempDecl.Initializer, Is.TypeOf<ArrInitExprNode>());
+            Assert.That(loop.Condition.As<IdNode>().Identifier, Is.EqualTo("xs"));
+            Assert.That(ifStat.Condition, Is.TypeOf<RelExprNode>());
+            Assert.That(append.Identifier, Does.EndWith(".append"));
+            Assert.That(totalDecl.Identifier, Is.EqualTo("total"));
+            Assert.That(sumCall.Identifier, Is.EqualTo("sum"));
+            Assert.That(sumCall.Arguments!.Expressions.Single().As<IdNode>().Identifier, Is.EqualTo(tempDecl.Identifier));
         }
 
         [Test]
-        public void SetComprehensionBuildsSetCall()
+        public void SetComprehensionAssignmentExpandsToInitAndLoopWithAdd()
         {
-            var call = this.ParseExpression("{x for x in items}").As<FuncCallExprNode>();
+            var nodes = this.builder.BuildFromSource("seen = {x for x in items}\n")
+                .As<SourceNode>().Children.ToArray();
+            var decl = nodes[0].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var loop = nodes[1].As<ForStatNode>();
+            var add = loop.Statement.As<BlockStatNode>().Children.Single()
+                .As<ExprStatNode>().Expression.As<FuncCallExprNode>();
 
-            Assert.That(call.Identifier, Is.EqualTo("set"));
+            Assert.That(decl.Identifier, Is.EqualTo("seen"));
+            Assert.That(decl.Initializer, Is.TypeOf<ArrInitExprNode>());
+            Assert.That(add.Identifier, Is.EqualTo("seen.add"));
         }
 
         [Test]
-        public void DictComprehensionBuildsDictCall()
+        public void DictComprehensionExpressionStatementHoistsTempAndDiscardExpression()
         {
-            var call = this.ParseExpression("{k: v for k, v in pairs}").As<FuncCallExprNode>();
+            var nodes = this.builder.BuildFromSource("{k: v for k, v in pairs}\n")
+                .As<SourceNode>().Children.ToArray();
+            var decl = nodes[0].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var loop = nodes[1].As<ForStatNode>();
+            var assign = loop.Statement.As<BlockStatNode>().Children.Single()
+                .As<ExprStatNode>().Expression.As<AssignExprNode>();
+            var discard = nodes[2].As<ExprStatNode>().Expression.As<IdNode>();
 
-            Assert.That(call.Identifier, Is.EqualTo("dict"));
-            Assert.That(call.Arguments!.Expressions.First(), Is.TypeOf<DictEntryNode>());
+            Assert.That(decl.Identifier, Does.StartWith("__linvast_comp_"));
+            Assert.That(decl.Initializer, Is.TypeOf<DictInitNode>());
+            Assert.That(loop.ForDeclaration, Is.TypeOf<DeclListNode>());
+            Assert.That(assign.LeftOperand, Is.TypeOf<ArrAccessExprNode>());
+            Assert.That(assign.RightOperand.As<IdNode>().Identifier, Is.EqualTo("v"));
+            Assert.That(discard.Identifier, Is.EqualTo(decl.Identifier));
         }
 
         [Test]
-        public void DictComprehensionAssignmentBuildsDictCallWithEntryAndForClause()
+        public void DictComprehensionAssignmentExpandsToInitAndLoop()
         {
-            var stat = this.ParseStatement("squares = {x: x ** 2 for x in range(1, 6)}\n");
-            var decl = stat.As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
-            var call = decl.Initializer!.As<FuncCallExprNode>();
-            ExprNode[] args = call.Arguments!.Expressions.ToArray();
+            var nodes = this.builder.BuildFromSource("squares = {x: x ** 2 for x in range(1, 6)}\n")
+                .As<SourceNode>().Children.ToArray();
+            var decl = nodes[0].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var loop = nodes[1].As<ForStatNode>();
+            var assign = loop.Statement.As<BlockStatNode>().Children.Single()
+                .As<ExprStatNode>().Expression.As<AssignExprNode>();
 
             Assert.That(decl.Identifier, Is.EqualTo("squares"));
-            Assert.That(call.Identifier, Is.EqualTo("dict"));
-
-            var entry = args[0].As<DictEntryNode>();
-            Assert.That(entry.Key.Identifier, Is.EqualTo("x"));
-            var powCall = entry.Value.As<FuncCallExprNode>();
-            Assert.That(powCall.Identifier, Is.EqualTo("pow"));
-
-            var forClause = args[1].As<FuncCallExprNode>();
-            ExprNode[] clauseArgs = forClause.Arguments!.Expressions.ToArray();
-            Assert.That(forClause.Identifier, Is.EqualTo("for"));
-            Assert.That(clauseArgs[0].As<IdNode>().Identifier, Is.EqualTo("x"));
-            Assert.That(clauseArgs[1].As<FuncCallExprNode>().Identifier, Is.EqualTo("range"));
+            Assert.That(decl.Initializer, Is.TypeOf<DictInitNode>());
+            Assert.That(loop.ForDeclaration!.As<VarDeclNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(loop.Condition.As<FuncCallExprNode>().Identifier, Is.EqualTo("range"));
+            Assert.That(assign.LeftOperand.As<ArrAccessExprNode>().Array.As<IdNode>().Identifier, Is.EqualTo("squares"));
+            Assert.That(assign.LeftOperand.As<ArrAccessExprNode>().IndexExpression.As<IdNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(assign.RightOperand.As<FuncCallExprNode>().Identifier, Is.EqualTo("pow"));
         }
 
         [Test]
@@ -181,14 +233,14 @@ namespace LINVAST.Tests.Imperative.Builders.Python
                 "message = f\"count={len(squares)}\"\n";
             var nodes = this.builder.BuildFromSource(source).As<SourceNode>().Children.ToArray();
 
-            Assert.That(nodes.Length, Is.EqualTo(2));
+            Assert.That(nodes.Length, Is.EqualTo(3));
 
             var squaresDecl = nodes[0].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
-            var squaresCall = squaresDecl.Initializer!.As<FuncCallExprNode>();
             Assert.That(squaresDecl.Identifier, Is.EqualTo("squares"));
-            Assert.That(squaresCall.Identifier, Is.EqualTo("dict"));
+            Assert.That(squaresDecl.Initializer, Is.TypeOf<DictInitNode>());
+            Assert.That(nodes[1], Is.TypeOf<ForStatNode>());
 
-            var messageDecl = nodes[1].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var messageDecl = nodes[2].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
             var formatCall = messageDecl.Initializer!.As<FuncCallExprNode>();
             ExprNode[] parts = formatCall.Arguments!.Expressions.ToArray();
 
@@ -201,16 +253,19 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
-        public void GeneratorArgumentWithFilterBuildsClauses()
+        public void ListComprehensionInReturnHoistsBeforeReturn()
         {
-            var call = this.ParseExpression("sum(x for x in xs if x > 0)").As<FuncCallExprNode>();
-            var generator = call.Arguments!.Expressions.Single().As<FuncCallExprNode>();
-            ExprNode[] clauses = generator.Arguments!.Expressions.Skip(1).ToArray();
+            var func = this.builder.BuildFromSource("def make():\n    return [x for x in xs]\n")
+                .As<SourceNode>().Children.Single().As<FuncNode>();
+            var body = func.Definition!.Children.ToArray();
+            var decl = body[0].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var loop = body[1].As<ForStatNode>();
+            var ret = body[2].As<JumpStatNode>();
 
-            Assert.That(call.Identifier, Is.EqualTo("sum"));
-            Assert.That(generator.Identifier, Is.EqualTo("generator"));
-            Assert.That(clauses[0].As<FuncCallExprNode>().Identifier, Is.EqualTo("for"));
-            Assert.That(clauses[1].As<FuncCallExprNode>().Identifier, Is.EqualTo("if"));
+            Assert.That(decl.Identifier, Does.StartWith("__linvast_comp_"));
+            Assert.That(decl.Initializer, Is.TypeOf<ArrInitExprNode>());
+            Assert.That(loop.Condition.As<IdNode>().Identifier, Is.EqualTo("xs"));
+            Assert.That(ret.ReturnExpr!.As<IdNode>().Identifier, Is.EqualTo(decl.Identifier));
         }
 
         [Test]
@@ -552,7 +607,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         [Test]
         public void PowerAssignmentBuildsPowCall()
         {
-            var stat = this.ParseStatement("x **= 2\n").As<ExprStatNode>();
+            var stat = this.ParseStatements("x = 1\nx **= 2\n").ElementAt(1).As<ExprStatNode>();
             var assign = stat.Expression.As<AssignExprNode>();
             var call = assign.RightOperand.As<FuncCallExprNode>();
             ExprNode[] args = call.Arguments!.Expressions.ToArray();
@@ -566,7 +621,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         [Test]
         public void FloorDivisionAssignmentBuildsFloorOfDivision()
         {
-            var stat = this.ParseStatement("x //= 2\n").As<ExprStatNode>();
+            var stat = this.ParseStatements("x = 1\nx //= 2\n").ElementAt(1).As<ExprStatNode>();
             var assign = stat.Expression.As<AssignExprNode>();
             var call = assign.RightOperand.As<FuncCallExprNode>();
 
@@ -581,7 +636,7 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         [Test]
         public void MatMulAssignmentBuildsMatmulCall()
         {
-            var stat = this.ParseStatement("x @= m\n").As<ExprStatNode>();
+            var stat = this.ParseStatements("x = 1\nx @= m\n").ElementAt(1).As<ExprStatNode>();
             var assign = stat.Expression.As<AssignExprNode>();
             var call = assign.RightOperand.As<FuncCallExprNode>();
             ExprNode[] args = call.Arguments!.Expressions.ToArray();
@@ -597,6 +652,9 @@ namespace LINVAST.Tests.Imperative.Builders.Python
 
         private StatNode ParseStatement(string source)
             => this.builder.BuildFromSource(source).As<SourceNode>().Children.Single().As<StatNode>();
+
+        private StatNode[] ParseStatements(string source)
+            => this.builder.BuildFromSource(source).As<SourceNode>().Children.Cast<StatNode>().ToArray();
 
         private void AssertExpressionValue<T>(string source, T expected)
         {

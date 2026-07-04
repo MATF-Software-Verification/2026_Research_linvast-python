@@ -99,16 +99,22 @@ namespace LINVAST.Imperative.Builders.Python
                 ExprNode? initializer = ann.test().Length > 1
                     ? this.Visit(ann.test()[1]).As<ExprNode>()
                     : null;
-                return MakeVarDecl(ctx.Start.Line, idTarget, initializer, typeName);
+                DeclStatNode declaration = MakeVarDecl(ctx.Start.Line, idTarget, initializer, typeName);
+                IReadOnlyList<PendingComprehension> comprehensions = this.TakePendingComprehensions(0);
+                return comprehensions.Count == 0
+                    ? declaration
+                    : HoistComprehensionsBefore(ctx.Start.Line, comprehensions, declaration);
             }
 
             if (ctx.augassign() is not null) {
                 int line = ctx.Start.Line;
                 ExprNode target = this.Visit(ctx.testlist_star_expr()[0]).As<ExprNode>();
+                int mark = this.MarkPendingComprehensions();
                 Python3Parser.TestlistContext testlistCtx = ctx.testlist();
                 ExprNode value = testlistCtx is not null
                     ? this.Visit(testlistCtx).As<ExprNode>()
                     : this.Visit(ctx.yield_expr(0)).As<ExprNode>();
+                IReadOnlyList<PendingComprehension> comprehensions = this.TakePendingComprehensions(mark);
 
                 string augSymbol = ctx.augassign().GetText();
                 if (augSymbol is "**=" or "//=" or "@=") {
@@ -121,12 +127,18 @@ namespace LINVAST.Imperative.Builders.Python
                             new ExprListNode(line, new[] { (ExprNode)new ArithmExprNode(line, targetCopy, ArithmOpNode.FromSymbol(line, "/"), value) })),
                         _ => new FuncCallExprNode(line, new IdNode(line, "matmul"), new ExprListNode(line, new[] { targetCopy, value })),
                     };
-                    return new ExprStatNode(line, new AssignExprNode(line, target, rhsCall));
+                    var specialStatement = new ExprStatNode(line, new AssignExprNode(line, target, rhsCall));
+                    return comprehensions.Count == 0
+                        ? specialStatement
+                        : HoistComprehensionsBefore(line, comprehensions, specialStatement);
                 }
 
                 AssignOpNode op = AssignOpNode.FromSymbol(ctx.augassign().Start.Line, augSymbol);
                 var assignExpr = new AssignExprNode(line, target, op, value);
-                return new ExprStatNode(line, assignExpr);
+                var statement = new ExprStatNode(line, assignExpr);
+                return comprehensions.Count == 0
+                    ? statement
+                    : HoistComprehensionsBefore(line, comprehensions, statement);
             }
 
             var assignTokens = ctx.children
@@ -138,11 +150,24 @@ namespace LINVAST.Imperative.Builders.Python
                     .Where(c => c is ParserRuleContext)
                     .ToList();
 
+                int mark = this.MarkPendingComprehensions();
                 ExprNode rhs = this.Visit(allExprs.Last()).As<ExprNode>();
+                IReadOnlyList<PendingComprehension> comprehensions = this.TakePendingComprehensions(mark);
 
                 var assignments = new List<ASTNode>();
+                bool isSingleAssignment = allExprs.Count == 2;
+                ExprNode firstLhs = this.Visit(allExprs[0]).As<ExprNode>();
+                if (isSingleAssignment
+                    && firstLhs is IdNode directTarget
+                    && rhs is IdNode rhsId
+                    && comprehensions.Count == 1
+                    && comprehensions[0].AccumulatorName == rhsId.Identifier) {
+                    return ExpandComprehensionAssignment(ctx.Start.Line, directTarget, comprehensions[0]);
+                }
+
+                assignments.AddRange(HoistedStatements(comprehensions));
                 for (int i = 0; i < allExprs.Count - 1; i++) {
-                    ExprNode lhs = this.Visit(allExprs[i]).As<ExprNode>();
+                    ExprNode lhs = i == 0 ? firstLhs : this.Visit(allExprs[i]).As<ExprNode>();
                     var assignExpr = new AssignExprNode(ctx.Start.Line, lhs, rhs);
                     assignments.Add(new ExprStatNode(ctx.Start.Line, assignExpr));
                 }
@@ -152,8 +177,104 @@ namespace LINVAST.Imperative.Builders.Python
                 return new BlockStatNode(ctx.Start.Line, assignments);
             }
 
-            return new ExprStatNode(ctx.Start.Line,
-                this.Visit(ctx.testlist_star_expr()[0]).As<ExprNode>());
+            int expressionMark = this.MarkPendingComprehensions();
+            ExprNode expression = this.Visit(ctx.testlist_star_expr()[0]).As<ExprNode>();
+            var expressionStatement = new ExprStatNode(ctx.Start.Line, expression);
+            IReadOnlyList<PendingComprehension> expressionComprehensions = this.TakePendingComprehensions(expressionMark);
+            return expressionComprehensions.Count == 0
+                ? expressionStatement
+                : HoistComprehensionsBefore(ctx.Start.Line, expressionComprehensions, expressionStatement);
+        }
+
+        private static BlockStatNode ExpandComprehensionAssignment(
+            int line,
+            IdNode target,
+            PendingComprehension comprehension)
+        {
+            return new BlockStatNode(
+                line,
+                comprehension.Expansion.Children
+                    .Cast<StatNode>()
+                    .Select(stat => ReplaceAccumulator(stat, comprehension.AccumulatorName, target.Identifier)));
+        }
+
+        private static StatNode ReplaceAccumulator(StatNode stat, string accumulator, string target)
+        {
+            switch (stat) {
+                case ExprStatNode exprStat:
+                    return new ExprStatNode(exprStat.Line, ReplaceAccumulator(exprStat.Expression, accumulator, target));
+                case BlockStatNode block:
+                    return new BlockStatNode(
+                        block.Line,
+                        block.Children.Select(child => ReplaceAccumulator(child.As<StatNode>(), accumulator, target)));
+                case IfStatNode ifStat:
+                    ExprNode cond = ReplaceAccumulator(ifStat.Condition, accumulator, target);
+                    StatNode thenStat = ReplaceAccumulator(ifStat.ThenStat, accumulator, target);
+                    return ifStat.ElseStat is null
+                        ? new IfStatNode(ifStat.Line, cond, thenStat)
+                        : new IfStatNode(ifStat.Line, cond, thenStat, ReplaceAccumulator(ifStat.ElseStat, accumulator, target));
+                case ForStatNode forStat:
+                    return new ForStatNode(
+                        forStat.Line,
+                        forStat.ForDeclaration!.Copy().As<DeclarationNode>(),
+                        ReplaceAccumulator(forStat.Condition, accumulator, target),
+                        forStat.IncrExpr is null ? null : ReplaceAccumulator(forStat.IncrExpr, accumulator, target),
+                        ReplaceAccumulator(forStat.Statement, accumulator, target));
+                case AsyncStatNode asyncStat:
+                    return new AsyncStatNode(asyncStat.Line, ReplaceAccumulator(asyncStat.Statement, accumulator, target));
+                default:
+                    return stat.Copy().As<StatNode>();
+            }
+        }
+
+        private static ExprNode ReplaceAccumulator(ExprNode expr, string accumulator, string target)
+        {
+            switch (expr) {
+                case IdNode id:
+                    if (id.Identifier == accumulator)
+                        return new IdNode(id.Line, target);
+                    if (id.Identifier.StartsWith(accumulator + "."))
+                        return new IdNode(id.Line, target + id.Identifier.Substring(accumulator.Length));
+                    return new IdNode(id.Line, id.Identifier);
+                case FuncCallExprNode call:
+                    return new FuncCallExprNode(
+                        call.Line,
+                        ReplaceAccumulator(call.Children[0].As<ExprNode>(), accumulator, target).As<IdNode>(),
+                        new ExprListNode(
+                            call.Line,
+                            call.Arguments?.Expressions.Select(arg => ReplaceAccumulator(arg, accumulator, target))
+                                ?? Enumerable.Empty<ExprNode>()));
+                case AssignExprNode assign:
+                    return new AssignExprNode(
+                        assign.Line,
+                        ReplaceAccumulator(assign.LeftOperand, accumulator, target),
+                        AssignOpNode.FromSymbol(assign.Operator.Line, assign.Operator.Symbol),
+                        ReplaceAccumulator(assign.RightOperand, accumulator, target));
+                case ArrAccessExprNode access:
+                    return new ArrAccessExprNode(
+                        access.Line,
+                        ReplaceAccumulator(access.Array, accumulator, target),
+                        ReplaceAccumulator(access.IndexExpression, accumulator, target));
+                case ArrInitExprNode arr:
+                    return new ArrInitExprNode(
+                        arr.Line,
+                        arr.Initializers.Select(init => ReplaceAccumulator(init, accumulator, target)));
+                case DictInitNode dict:
+                    return new DictInitNode(
+                        dict.Line,
+                        dict.Entries.Select(entry => ReplaceAccumulator(entry, accumulator, target).As<DictEntryNode>()));
+                case DictEntryNode entry:
+                    return new DictEntryNode(
+                        entry.Line,
+                        ReplaceAccumulator(entry.Key, accumulator, target).As<IdNode>(),
+                        ReplaceAccumulator(entry.Value, accumulator, target));
+                case ExprListNode list:
+                    return new ExprListNode(
+                        list.Line,
+                        list.Expressions.Select(item => ReplaceAccumulator(item, accumulator, target)));
+                default:
+                    return expr.Copy().As<ExprNode>();
+            }
         }
 
         public override ASTNode VisitAnnassign(Python3Parser.AnnassignContext ctx) =>

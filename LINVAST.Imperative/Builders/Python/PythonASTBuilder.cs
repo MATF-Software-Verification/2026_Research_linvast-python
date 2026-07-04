@@ -14,7 +14,18 @@ namespace LINVAST.Imperative.Builders.Python
     [ASTBuilder(".py")]
     public sealed partial class PythonASTBuilder : Python3ParserBaseVisitor<ASTNode>, IASTBuilder<Python3Parser>
     {
-        public ASTNode BuildFromSource(string code) => this.Visit(this.CreateParser(code).file_input());
+        private int comprehensionAccumulatorIndex;
+        private readonly List<PendingComprehension> pendingComprehensions = new();
+
+        public ASTNode BuildFromSource(string code)
+        {
+            this.pendingComprehensions.Clear();
+            try {
+                return this.Visit(this.CreateParser(code).file_input());
+            } finally {
+                this.pendingComprehensions.Clear();
+            }
+        }
 
         public Python3Parser CreateParser(string code) => this.CreateParser(code, initialLine: 1);
 
@@ -32,8 +43,15 @@ namespace LINVAST.Imperative.Builders.Python
             return parser;
         }
 
-        public ASTNode BuildFromSource(string code, Func<Python3Parser, ParserRuleContext> entryProvider) =>
-            this.Visit(entryProvider(this.CreateParser(code)));
+        public ASTNode BuildFromSource(string code, Func<Python3Parser, ParserRuleContext> entryProvider)
+        {
+            this.pendingComprehensions.Clear();
+            try {
+                return this.Visit(entryProvider(this.CreateParser(code)));
+            } finally {
+                this.pendingComprehensions.Clear();
+            }
+        }
 
         private ASTNode BuildFromSource(string code, Func<Python3Parser, ParserRuleContext> entryProvider, int initialLine) =>
             this.Visit(entryProvider(this.CreateParser(code, initialLine)));
@@ -52,7 +70,9 @@ namespace LINVAST.Imperative.Builders.Python
         {
             IEnumerable<ASTNode> statements = ctx.stmt()
                 .Select(this.Visit)
-                .SelectMany(node => node is BlockStatNode block ? block.Children : new[] { node });
+                .SelectMany(node => node is BlockStatNode block
+                    ? block.Children.AsEnumerable()
+                    : Enumerable.Repeat(node, 1));
 
             return new SourceNode(this.AddDeclarations(statements));
         }
@@ -84,11 +104,45 @@ namespace LINVAST.Imperative.Builders.Python
             return new DeclStatNode(line, declSpecs, new DeclListNode(line, decl));
         }
 
+        private int MarkPendingComprehensions() => this.pendingComprehensions.Count;
+
+        private IReadOnlyList<PendingComprehension> TakePendingComprehensions(int mark)
+        {
+            var items = this.pendingComprehensions.Skip(mark).ToArray();
+            this.pendingComprehensions.RemoveRange(mark, this.pendingComprehensions.Count - mark);
+            return items;
+        }
+
+        private static IEnumerable<ASTNode> HoistedStatements(IEnumerable<PendingComprehension> comprehensions) =>
+            comprehensions.SelectMany(c => c.Expansion.Children);
+
+        private static BlockStatNode HoistComprehensionsBefore(
+            int line,
+            IEnumerable<PendingComprehension> comprehensions,
+            StatNode statement) =>
+            new(line, HoistedStatements(comprehensions).Concat(new ASTNode[] { statement }));
+
+        private sealed class PendingComprehension
+        {
+            public string AccumulatorName { get; }
+            public BlockStatNode Expansion { get; }
+
+            public PendingComprehension(string accumulatorName, BlockStatNode expansion)
+            {
+                this.AccumulatorName = accumulatorName;
+                this.Expansion = expansion;
+            }
+        }
+
         private IReadOnlyList<ASTNode> AddDeclarations(IEnumerable<ASTNode> statements)
         {
             var nodes = new List<ASTNode>();
             var declared = new HashSet<string>();
-            foreach (ASTNode stat in statements) {
+            IEnumerable<ASTNode> flattenedStatements = statements
+                .SelectMany(stat => stat is BlockStatNode block
+                    ? block.Children.AsEnumerable()
+                    : Enumerable.Repeat(stat, 1));
+            foreach (ASTNode stat in flattenedStatements) {
                 if (stat is DeclStatNode declStat) {
                     foreach (DeclNode declarator in declStat.DeclaratorList.Declarators)
                         declared.Add(declarator.Identifier);

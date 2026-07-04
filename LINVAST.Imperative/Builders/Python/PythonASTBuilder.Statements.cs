@@ -43,43 +43,63 @@ namespace LINVAST.Imperative.Builders.Python
                 elseStmt = this.Visit(blocks[tests.Length]).As<StatNode>();
 
             for (int i = elifCount; i >= 1; i--) {
+                int mark = this.MarkPendingComprehensions();
                 ExprNode cond = this.Visit(tests[i]).As<ExprNode>();
+                IReadOnlyList<PendingComprehension> comprehensions = this.TakePendingComprehensions(mark);
                 StatNode body = this.Visit(blocks[i]).As<StatNode>();
-                elseStmt = elseStmt is null
+                StatNode elifStat = elseStmt is null
                     ? new IfStatNode(tests[i].Start.Line, cond, body)
                     : new IfStatNode(tests[i].Start.Line, cond, body, elseStmt);
+                elseStmt = comprehensions.Count == 0
+                    ? elifStat
+                    : HoistComprehensionsBefore(tests[i].Start.Line, comprehensions, elifStat);
             }
 
+            int ifMark = this.MarkPendingComprehensions();
             ExprNode ifCond = this.Visit(tests[0]).As<ExprNode>();
+            IReadOnlyList<PendingComprehension> ifComprehensions = this.TakePendingComprehensions(ifMark);
             StatNode ifBody = this.Visit(blocks[0]).As<StatNode>();
-            return elseStmt is null
+            StatNode ifStat = elseStmt is null
                 ? new IfStatNode(ctx.Start.Line, ifCond, ifBody)
                 : new IfStatNode(ctx.Start.Line, ifCond, ifBody, elseStmt);
+            return ifComprehensions.Count == 0
+                ? ifStat
+                : HoistComprehensionsBefore(ctx.Start.Line, ifComprehensions, ifStat);
         }
 
         // while_stmt: 'while' test ':' block ('else' ':' block)?
         public override ASTNode VisitWhile_stmt(Python3Parser.While_stmtContext ctx)
         {
+            int mark = this.MarkPendingComprehensions();
             ExprNode cond = this.Visit(ctx.test()).As<ExprNode>();
+            IReadOnlyList<PendingComprehension> comprehensions = this.TakePendingComprehensions(mark);
             BlockStatNode body = this.Visit(ctx.block(0)).As<BlockStatNode>();
 
             if (ctx.ELSE() is not null)
                 body = this.AppendLoopElse(body, this.Visit(ctx.block(1)).As<StatNode>(), ctx.Start.Line);
 
-            return new WhileStatNode(ctx.Start.Line, cond, body);
+            var whileStat = new WhileStatNode(ctx.Start.Line, cond, body);
+            return comprehensions.Count == 0
+                ? whileStat
+                : HoistComprehensionsBefore(ctx.Start.Line, comprehensions, whileStat);
         }
 
         // for_stmt: 'for' exprlist 'in' testlist ':' block ('else' ':' block)?
         public override ASTNode VisitFor_stmt(Python3Parser.For_stmtContext ctx)
         {
             DeclarationNode loopVar = this.CreateForLoopDeclaration(ctx);
+            int mark = this.MarkPendingComprehensions();
             ExprNode iterable = this.Visit(ctx.testlist()).As<ExprNode>();
+            IReadOnlyList<PendingComprehension> comprehensions = this.TakePendingComprehensions(mark);
             BlockStatNode body = this.Visit(ctx.block(0)).As<BlockStatNode>();
 
             if (ctx.ELSE() is not null)
                 body = this.AppendLoopElse(body, this.Visit(ctx.block(1)).As<StatNode>(), ctx.Start.Line);
 
-            return new ForStatNode(ctx.Start.Line, loopVar, iterable, null, body);
+            var forStat = new ForStatNode(ctx.Start.Line, loopVar, iterable, null, body);
+            return comprehensions.Count == 0
+                ? forStat
+                : HoistComprehensionsBefore(ctx.Start.Line, comprehensions, forStat);
         }
 
         // try_stmt: 'try' ':' block ((except_clause ':' block)+ ... | 'finally' ':' block)
@@ -181,8 +201,13 @@ namespace LINVAST.Imperative.Builders.Python
             if (ctx.testlist() is null)
                 return new JumpStatNode(ctx.Start.Line, (ExprNode?)null);
 
+            int mark = this.MarkPendingComprehensions();
             ExprNode expr = this.Visit(ctx.testlist()).As<ExprNode>();
-            return new JumpStatNode(ctx.Start.Line, expr);
+            IReadOnlyList<PendingComprehension> comprehensions = this.TakePendingComprehensions(mark);
+            var returnStat = new JumpStatNode(ctx.Start.Line, expr);
+            return comprehensions.Count == 0
+                ? returnStat
+                : HoistComprehensionsBefore(ctx.Start.Line, comprehensions, returnStat);
         }
 
         // raise_stmt: 'raise' (test ('from' test)?)?
@@ -191,26 +216,41 @@ namespace LINVAST.Imperative.Builders.Python
             if (ctx.test() is null || ctx.test().Length == 0)
                 return new ThrowStatNode(ctx.Start.Line, new NullLitExprNode(ctx.Start.Line));
 
+            int mark = this.MarkPendingComprehensions();
             ExprNode exc = this.Visit(ctx.test(0)).As<ExprNode>();
-            return new ThrowStatNode(ctx.Start.Line, exc);
+            IReadOnlyList<PendingComprehension> comprehensions = this.TakePendingComprehensions(mark);
+            var raiseStat = new ThrowStatNode(ctx.Start.Line, exc);
+            return comprehensions.Count == 0
+                ? raiseStat
+                : HoistComprehensionsBefore(ctx.Start.Line, comprehensions, raiseStat);
         }
 
         // yield_stmt: yield_expr
         public override ASTNode VisitYield_stmt(Python3Parser.Yield_stmtContext ctx)
         {
+            int mark = this.MarkPendingComprehensions();
             ExprNode yieldExpr = this.Visit(ctx.yield_expr()).As<ExprNode>();
-            return new ExprStatNode(ctx.Start.Line, yieldExpr);
+            IReadOnlyList<PendingComprehension> comprehensions = this.TakePendingComprehensions(mark);
+            var yieldStat = new ExprStatNode(ctx.Start.Line, yieldExpr);
+            return comprehensions.Count == 0
+                ? yieldStat
+                : HoistComprehensionsBefore(ctx.Start.Line, comprehensions, yieldStat);
         }
 
         // assert_stmt: 'assert' test (',' test)?
         public override ASTNode VisitAssert_stmt(Python3Parser.Assert_stmtContext ctx)
         {
-            var args = ctx.test().Select(t => this.Visit(t).As<ExprNode>());
+            int mark = this.MarkPendingComprehensions();
+            var args = ctx.test().Select(t => this.Visit(t).As<ExprNode>()).ToArray();
+            IReadOnlyList<PendingComprehension> comprehensions = this.TakePendingComprehensions(mark);
             var assertCall = new FuncCallExprNode(
                 ctx.Start.Line,
                 new IdNode(ctx.Start.Line, "assert"),
                 new ExprListNode(ctx.Start.Line, args));
-            return new ExprStatNode(ctx.Start.Line, assertCall);
+            var assertStat = new ExprStatNode(ctx.Start.Line, assertCall);
+            return comprehensions.Count == 0
+                ? assertStat
+                : HoistComprehensionsBefore(ctx.Start.Line, comprehensions, assertStat);
         }
 
         // match_stmt: 'match' subject_expr ':' NEWLINE INDENT case_block+ DEDENT
@@ -333,14 +373,19 @@ namespace LINVAST.Imperative.Builders.Python
         private DeclarationNode CreateForLoopDeclaration(Python3Parser.For_stmtContext ctx)
         {
             ASTNode visited = this.Visit(ctx.exprlist());
+            return this.CreateForLoopDeclaration(ctx.Start.Line, visited);
+        }
+
+        private DeclarationNode CreateForLoopDeclaration(int line, ASTNode visited)
+        {
             if (visited is ExprListNode exprList) {
                 VarDeclNode[] varDecls = exprList.Expressions
                     .Select(e => new VarDeclNode(e.Line, e.As<IdNode>()))
                     .ToArray();
-                return varDecls.Length == 1 ? varDecls[0] : new DeclListNode(ctx.Start.Line, varDecls);
+                return varDecls.Length == 1 ? varDecls[0] : new DeclListNode(line, varDecls);
             }
 
-            return new VarDeclNode(ctx.Start.Line, visited.As<IdNode>());
+            return new VarDeclNode(line, visited.As<IdNode>());
         }
 
         private BlockStatNode AppendLoopElse(BlockStatNode body, StatNode elseBlock, int line)
