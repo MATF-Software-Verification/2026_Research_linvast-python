@@ -78,6 +78,14 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
+        public void MemberAccessAfterFunctionCallBuildsIdentifier()
+        {
+            var id = this.ParseExpression("f(1).x").As<IdNode>();
+
+            Assert.That(id.Identifier, Does.EndWith(".x"));
+        }
+
+        [Test]
         public void ListComprehensionBuildsListCall()
         {
             var call = this.ParseExpression("[x * 2 for x in items]").As<FuncCallExprNode>();

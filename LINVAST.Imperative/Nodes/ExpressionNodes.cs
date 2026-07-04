@@ -149,7 +149,7 @@ namespace LINVAST.Imperative.Nodes
         public string Identifier => this.Children[0].As<IdNode>().Identifier;
 
         [JsonIgnore]
-        public TypeNameListNode? TemplateArguments => this.Children.ElementAtOrDefault(1)?.As<TypeNameListNode>();
+        public TypeNameListNode? TemplateArguments => this.Children.ElementAtOrDefault(1) as TypeNameListNode;
 
         [JsonIgnore]
         public ExprListNode? Arguments
