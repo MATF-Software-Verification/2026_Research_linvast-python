@@ -16,18 +16,7 @@ Komande se pokreću iz korena repozitorijuma.
 Potrebni alati:
 
 - .NET SDK sa podrškom za `net5.0` i `netstandard2.1`
-- Git
 - Docker, opciono, za pokretanje testova bez lokalno instaliranog .NET SDK-a
-
-Glavne NuGet zavisnosti:
-
-- `Antlr4.Runtime.Standard`
-- `Newtonsoft.Json`
-- `Serilog`
-- `NUnit`
-- `NUnit3TestAdapter`
-- `Microsoft.NET.Test.Sdk`
-- `MathNet.Symbolics`
 
 ANTLR C# fajlovi za Python parser su već generisani u direktorijumu
 `LINVAST.Imperative/Builders/Python/ANTLR`.
@@ -61,23 +50,7 @@ Console.WriteLine(ast.GetText());
 Console.WriteLine(ast.ToJson(compact: false));
 ```
 
-Builder se može koristiti i direktno:
-
-```csharp
-using System;
-using LINVAST.Imperative.Builders.Python;
-
-var builder = new PythonASTBuilder();
-var source = "def square(x: int) -> int:\n    return x * x\n";
-var ast = builder.BuildFromSource(source);
-
-Console.WriteLine(ast.ToJson(compact: false));
-```
-
-Rezultat je LINVAST `SourceNode`, koji se dalje može obilaziti, porediti,
-kopirati ili serijalizovati u JSON.
-
-## Ulazni primeri
+## Primeri
 
 ### Deklaracije i tuple unpacking
 
@@ -124,15 +97,6 @@ match value:
 squares = {x: x ** 2 for x in range(1, 6)}
 message = f"count={len(squares)}"
 ```
-
-## Alati korišćeni za analizu
-
-- ANTLR4 Python gramatika i generisani C# lexer/parser
-- .NET compiler/MSBuild
-- NUnit
-- `Microsoft.NET.Test.Sdk`
-- Docker za izolovano pokretanje testova
-- Git diff i code review
 
 ## Testovi
 
