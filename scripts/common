@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+
+LINVAST_COMMON_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+LINVAST_REPO_ROOT="$(cd -- "${LINVAST_COMMON_DIR}/.." && pwd -P)"
+LINVAST_SOLUTION="${LINVAST_REPO_ROOT}/LINVAST.sln"
+LINVAST_TEST_PROJECT="${LINVAST_REPO_ROOT}/LINVAST.Tests/LINVAST.Tests.csproj"
+LINVAST_VERSION_PROJECT="${LINVAST_REPO_ROOT}/LINVAST/LINVAST.csproj"
+LINVAST_COPIED_NUGET_CONFIG=""
+
+linvast_die() {
+    printf 'error: %s\n' "$*" >&2
+    exit 1
+}
+
+linvast_require_value() {
+    local option="$1"
+    local value="${2-}"
+
+    if [[ -z "$value" ]]; then
+        linvast_die "${option} requires a value"
+    fi
+}
+
+linvast_validate_configuration() {
+    local configuration="$1"
+
+    case "$configuration" in
+        Debug|Release)
+            ;;
+        *)
+            linvast_die "invalid configuration '${configuration}'. Must be Debug or Release"
+            ;;
+    esac
+}
+
+linvast_format_build_number() {
+    local build_number="${1-}"
+
+    if [[ -z "$build_number" || "$build_number" == "-1" ]]; then
+        return 1
+    fi
+
+    if [[ "$build_number" =~ ^-[0-9]+$ ]]; then
+        linvast_die "build number must be a non-negative integer, or -1 to omit it"
+    fi
+
+    if ! [[ "$build_number" =~ ^[0-9]+$ ]]; then
+        linvast_die "build number must be a non-negative integer"
+    fi
+
+    printf '%05d' "$((10#${build_number}))"
+}
+
+linvast_resolve_path() {
+    local path="$1"
+
+    if [[ "$path" == /* ]]; then
+        printf '%s\n' "$path"
+    else
+        printf '%s\n' "${LINVAST_REPO_ROOT}/${path}"
+    fi
+}
+
+linvast_base_version() {
+    local version
+
+    version="$(dotnet msbuild "$LINVAST_VERSION_PROJECT" -nologo -getProperty:Version -m:1)"
+    version="${version//$'\r'/}"
+    version="${version//$'\n'/}"
+
+    if [[ -z "$version" ]]; then
+        linvast_die "could not read the base package version"
+    fi
+
+    printf '%s\n' "$version"
+}
+
+linvast_prerelease_version() {
+    local version_suffix="$1"
+    local build_number_string="${2-}"
+    local base_version
+
+    base_version="$(linvast_base_version)"
+
+    if [[ -n "$build_number_string" ]]; then
+        printf '%s-%s-%s\n' "$base_version" "$version_suffix" "$build_number_string"
+    else
+        printf '%s-%s\n' "$base_version" "$version_suffix"
+    fi
+}
+
+linvast_prepare_nuget_config() {
+    local source_config=""
+    local target_config="${LINVAST_REPO_ROOT}/NuGet.config"
+
+    if [[ -f "${LINVAST_REPO_ROOT}/.nuget/NuGet.config" ]]; then
+        source_config="${LINVAST_REPO_ROOT}/.nuget/NuGet.config"
+    elif [[ -f "${LINVAST_REPO_ROOT}/.nuget/Nuget.config" ]]; then
+        source_config="${LINVAST_REPO_ROOT}/.nuget/Nuget.config"
+    fi
+
+    if [[ -z "$source_config" || -f "$target_config" ]]; then
+        return 0
+    fi
+
+    cp "$source_config" "$target_config"
+    LINVAST_COPIED_NUGET_CONFIG="$target_config"
+}
+
+linvast_restore_nuget_config() {
+    if [[ -n "${LINVAST_COPIED_NUGET_CONFIG:-}" && -f "$LINVAST_COPIED_NUGET_CONFIG" ]]; then
+        rm -f "$LINVAST_COPIED_NUGET_CONFIG"
+    fi
+}

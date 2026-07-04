@@ -1,5 +1,8 @@
-﻿using LINVAST.Imperative.Builders.C;
+﻿using System.Linq;
+using LINVAST.Imperative.Builders.C;
+using LINVAST.Imperative.Nodes;
 using LINVAST.Imperative.Nodes.Common;
+using LINVAST.Imperative.Visitors;
 using LINVAST.Nodes;
 using LINVAST.Tests.Imperative.Builders.Common;
 using NUnit.Framework;
@@ -204,6 +207,43 @@ namespace LINVAST.Tests.Imperative.Builders.C
                 2,
                 AccessModifiers.Unspecified, QualifierFlags.Const
             );
+
+            ArrDeclNode matrix = this.GenerateAST("int matrix[2][3];")
+                .As<DeclStatNode>()
+                .DeclaratorList.Declarators.Single()
+                .As<ArrDeclNode>();
+            Assert.That(matrix.SizeExpression, Is.InstanceOf<ExprListNode>());
+            Assert.That(matrix.SizeExpression!.As<ExprListNode>().Expressions.Select(ConstantExpressionEvaluator.Evaluate),
+                Is.EqualTo(new object[] { 2, 3 }));
+
+            ArrDeclNode cube = this.GenerateAST("int cube[2][3][4];")
+                .As<DeclStatNode>()
+                .DeclaratorList.Declarators.Single()
+                .As<ArrDeclNode>();
+            Assert.That(cube.SizeExpression, Is.InstanceOf<ExprListNode>());
+            Assert.That(cube.SizeExpression!.As<ExprListNode>().Expressions.Select(ConstantExpressionEvaluator.Evaluate),
+                Is.EqualTo(new object[] { 2, 3, 4 }));
+
+            this.AssertArrayDeclaration("int values[static 4];", "int", "values", 4);
+        }
+
+        [Test]
+        public void FunctionPointerDeclarationTest()
+        {
+            DeclStatNode decl = this.GenerateAST("int (*handler)(int x);").As<DeclStatNode>();
+            FuncDeclNode func = decl.DeclaratorList.Declarators.Single().As<FuncDeclNode>();
+
+            Assert.That(func.Identifier, Is.EqualTo("handler"));
+            Assert.That(func.PointerLevel, Is.EqualTo(1));
+            Assert.That(func.Parameters, Has.Exactly(1).Items);
+
+            DeclStatNode compareDecl = this.GenerateAST("int (*compare)(const char *left, const char *right);").As<DeclStatNode>();
+            FuncDeclNode compare = compareDecl.DeclaratorList.Declarators.Single().As<FuncDeclNode>();
+            Assert.That(compare.Identifier, Is.EqualTo("compare"));
+            Assert.That(compare.PointerLevel, Is.EqualTo(1));
+            Assert.That(compare.Parameters, Has.Exactly(2).Items);
+            Assert.That(compare.Parameters!.Select(p => p.Specifiers.TypeName), Is.EqualTo(new[] { "char*", "char*" }));
+            Assert.That(compare.Parameters!.Select(p => p.Declarator.Identifier), Is.EqualTo(new[] { "left", "right" }));
         }
 
         [Test]
@@ -241,6 +281,107 @@ namespace LINVAST.Tests.Imperative.Builders.C
                 AccessModifiers.Unspecified, QualifierFlags.Volatile,
                 3, 4, 200, 0x31
             );
+        }
+
+        [Test]
+        public void EmptyAndStaticAssertDeclarationTest()
+        {
+            DeclStatNode emptyDeclaration = this.GenerateAST("int;").As<DeclStatNode>();
+            Assert.That(emptyDeclaration.Specifiers.TypeName, Is.EqualTo("int"));
+            Assert.That(emptyDeclaration.DeclaratorList.Declarators, Is.Empty);
+
+            Assert.That(this.GenerateAST("_Static_assert(1, \"ok\");"), Is.InstanceOf<EmptyStatNode>());
+        }
+
+        [Test]
+        public void DesignatedArrayInitializerTest()
+        {
+            ArrDeclNode array = this.GenerateAST("int x[] = { [2] = 3, 4 };")
+                .As<DeclStatNode>()
+                .DeclaratorList.Declarators.Single()
+                .As<ArrDeclNode>();
+
+            Assert.That(array.Initializer!.Initializers.Select(ConstantExpressionEvaluator.Evaluate), Is.EqualTo(new object[] { 3, 4 }));
+        }
+
+        [Test]
+        public void StructDefinitionTest()
+        {
+            StructNode ast = this.GenerateAST("struct Point { int x; float y; };").As<StructNode>();
+            TypeDeclNode decl = ast.DeclaratorList.Declarators.Single().As<TypeDeclNode>();
+
+            Assert.That(ast.Specifiers.TypeName, Is.EqualTo("Point"));
+            Assert.That(decl.Identifier, Is.EqualTo("Point"));
+            Assert.That(decl.Declarations.Select(d => d.Specifiers.TypeName), Is.EqualTo(new[] { "int", "float" }));
+            Assert.That(decl.Declarations.Select(d => d.DeclaratorList.Declarators.Single().Identifier), Is.EqualTo(new[] { "x", "y" }));
+        }
+
+        [Test]
+        public void StructVariableDeclarationTest()
+        {
+            this.AssertVariableDeclaration("struct Point p;", "p", "struct Point");
+
+            DeclStatNode pointerDecl = this.GenerateAST("struct Point *p;").As<DeclStatNode>();
+            VarDeclNode pointer = pointerDecl.DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            Assert.That(pointerDecl.Specifiers.TypeName, Is.EqualTo("struct Point"));
+            Assert.That(pointer.Identifier, Is.EqualTo("p"));
+            Assert.That(pointer.PointerLevel, Is.EqualTo(1));
+
+            this.AssertVariableDeclaration("struct Point { int x; } p;", "p", "struct Point");
+            this.AssertVariableDeclaration("struct { int x; } p;", "p", "struct <anonymous>");
+        }
+
+        [Test]
+        public void StructFieldDeclarationTest()
+        {
+            StructNode ast = this.GenerateAST("struct Packet { unsigned flags:3; int values[3]; struct Point *next; };").As<StructNode>();
+            TypeDeclNode decl = ast.DeclaratorList.Declarators.Single().As<TypeDeclNode>();
+            DeclStatNode[] fields = decl.Declarations.ToArray();
+
+            Assert.That(fields, Has.Exactly(3).Items);
+            Assert.That(fields[0].Specifiers.TypeName, Is.EqualTo("unsigned"));
+            Assert.That(fields[0].DeclaratorList.Declarators.Single().Identifier, Is.EqualTo("flags"));
+
+            ArrDeclNode values = fields[1].DeclaratorList.Declarators.Single().As<ArrDeclNode>();
+            Assert.That(fields[1].Specifiers.TypeName, Is.EqualTo("int"));
+            Assert.That(values.Identifier, Is.EqualTo("values"));
+            Assert.That(ConstantExpressionEvaluator.Evaluate(values.SizeExpression!), Is.EqualTo(3));
+
+            VarDeclNode next = fields[2].DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            Assert.That(fields[2].Specifiers.TypeName, Is.EqualTo("struct Point"));
+            Assert.That(next.Identifier, Is.EqualTo("next"));
+            Assert.That(next.PointerLevel, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void StructFieldDeclarationListTest()
+        {
+            StructNode ast = this.GenerateAST("struct Point { int x, y; };").As<StructNode>();
+            DeclStatNode field = ast.DeclaratorList.Declarators.Single().As<TypeDeclNode>().Declarations.Single();
+
+            Assert.That(field.Specifiers.TypeName, Is.EqualTo("int"));
+            Assert.That(field.DeclaratorList.Declarators.Select(d => d.Identifier), Is.EqualTo(new[] { "x", "y" }));
+        }
+
+        [Test]
+        public void StructBitFieldDeclarationListTest()
+        {
+            StructNode ast = this.GenerateAST("struct Flags { unsigned a:1, b:2; };").As<StructNode>();
+            DeclStatNode field = ast.DeclaratorList.Declarators.Single().As<TypeDeclNode>().Declarations.Single();
+
+            Assert.That(field.Specifiers.TypeName, Is.EqualTo("unsigned"));
+            Assert.That(field.DeclaratorList.Declarators.Select(d => d.Identifier), Is.EqualTo(new[] { "a", "b" }));
+        }
+
+        [Test]
+        public void StructUnnamedBitFieldAndStaticAssertTest()
+        {
+            StructNode ast = this.GenerateAST("struct Flags { _Static_assert(1, \"ok\"); unsigned :1; unsigned a:1; };").As<StructNode>();
+            TypeDeclNode decl = ast.DeclaratorList.Declarators.Single().As<TypeDeclNode>();
+
+            Assert.That(decl.Declarations, Has.Exactly(2).Items);
+            Assert.That(decl.Declarations.First().DeclaratorList.Declarators, Is.Empty);
+            Assert.That(decl.Declarations.Last().DeclaratorList.Declarators.Single().Identifier, Is.EqualTo("a"));
         }
 
 

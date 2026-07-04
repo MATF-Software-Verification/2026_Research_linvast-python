@@ -40,10 +40,14 @@ namespace LINVAST.Imperative.Builders.C
 
         public override ASTNode VisitLabeledStatement([NotNull] LabeledStatementContext ctx)
         {
-            if (ctx.Identifier() is null)
-                throw new NotImplementedException();
-
-            string label = ctx.Identifier().GetText();
+            string label;
+            if (ctx.Identifier() is not null) {
+                label = ctx.Identifier().GetText();
+            } else if (ctx.constantExpression() is not null) {
+                label = $"case {this.Visit(ctx.constantExpression()).As<ExprNode>().GetText()}";
+            } else {
+                label = "default";
+            }
             StatNode statement = this.Visit(ctx.statement()).As<StatNode>();
             return new LabeledStatNode(ctx.Start.Line, label, statement);
         }
@@ -69,7 +73,11 @@ namespace LINVAST.Imperative.Builders.C
                         ? new IfStatNode(ctx.Start.Line, condition, thenStatement)
                         : new IfStatNode(ctx.Start.Line, condition, thenStatement, elseStatement);
                 case "switch":
-                    throw new NotImplementedException("switch");
+                    ExprNode switchCondition = this.Visit(ctx.expression()).As<ExprNode>();
+                    StatNode switchStatement = this.Visit(ctx.statement().Single()).As<StatNode>();
+                    BlockStatNode switchBody = switchStatement as BlockStatNode
+                        ?? new BlockStatNode(switchStatement.Line, switchStatement);
+                    return new SwitchStatNode(ctx.Start.Line, switchCondition, switchBody);
                 default:
                     throw new SyntaxErrorException("Unknown construct", ctx.Start.Line, ctx.Start.Column);
             }
@@ -96,9 +104,12 @@ namespace LINVAST.Imperative.Builders.C
             ExprNode condition = this.Visit(ctx.expression()).As<ExprNode>();
             it = new WhileStatNode(ctx.Start.Line, condition, statement);
 
-            return ctx.Do() is not null
-                ? throw new NotImplementedException("do-while")
-                : it;
+            if (ctx.Do() is not null) {
+                StatNode firstRun = this.Visit(ctx.statement()).As<StatNode>();
+                return new BlockStatNode(ctx.Start.Line, firstRun, it);
+            }
+
+            return it;
 
             void GetForExpressions(ForConditionContext fctx, out ExprNode? cond, out ExprNode? inc)
             {

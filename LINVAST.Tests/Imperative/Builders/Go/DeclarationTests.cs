@@ -1,5 +1,7 @@
 using System;
+using System.Linq;
 using LINVAST.Imperative.Builders.Go;
+using LINVAST.Imperative.Nodes;
 using LINVAST.Imperative.Nodes.Common;
 using LINVAST.Nodes;
 using LINVAST.Tests.Imperative.Builders.Common;
@@ -27,9 +29,11 @@ namespace LINVAST.Tests.Imperative.Builders.Go
         {
             this.AssertVariableDeclaration("var i = 33", "i", "Int64", value: 33);
             this.AssertVariableDeclaration("var a = \"abc\" ", "a", "String", value: "abc");
-            
-            string src1 = "var re, im = complexSqrt(-1)";
-            Assert.That(() => this.GenerateAST(src1), Throws.InstanceOf<NotImplementedException>());
+
+            DeclStatNode decl = this.AssertDeclarationNode("var re, im = complexSqrt(-1)", "object");
+            Assert.That(decl.DeclaratorList.Declarators.Select(d => d.Identifier), Is.EqualTo(new[] { "re", "im" }));
+            Assert.That(decl.DeclaratorList.Declarators.Select(d => d.As<VarDeclNode>().Initializer!.As<FuncCallExprNode>().Identifier),
+                Is.EqualTo(new[] { "__linvast_multi_value", "__linvast_multi_value" }));
         }
 
 
@@ -46,17 +50,16 @@ namespace LINVAST.Tests.Imperative.Builders.Go
         [Test]
         public void VariableDeclarationListWithoutTypeTest()
         {
-            string src1 = "var x, y = -1, -2";
-            string src2 = "var x, y = -1, \"abc\"";
-            Assert.That(() => this.GenerateAST(src1), Throws.InstanceOf<NotImplementedException>());
-            Assert.That(() => this.GenerateAST(src2), Throws.InstanceOf<NotImplementedException>());
+            this.AssertVariableDeclarationList("var x, y = -1, -2", "object", AccessModifiers.Unspecified,
+                QualifierFlags.None, ("x", -1), ("y", -2));
+            this.AssertVariableDeclarationList("var x, y = -1, \"abc\"", "object", AccessModifiers.Unspecified,
+                QualifierFlags.None, ("x", -1), ("y", "abc"));
         }
 
         [Test]
         public void ConstDeclarationTest()
         {
-            string src = "const i";
-            Assert.That(() => this.GenerateAST(src), Throws.InstanceOf<NotImplementedException>() );
+            this.AssertVariableDeclaration("const i", "i", "object", AccessModifiers.Unspecified, QualifierFlags.Const);
             
             this.AssertVariableDeclaration("const i int = 0", "i", "int", AccessModifiers.Unspecified, QualifierFlags.Const, value:0);
             this.AssertVariableDeclaration("const j = 0", "j", "Int64", AccessModifiers.Unspecified, QualifierFlags.Const, value:0);
@@ -64,6 +67,19 @@ namespace LINVAST.Tests.Imperative.Builders.Go
             this.AssertVariableDeclarationList("const x, y float32 = -1, -2", "float32", AccessModifiers.Unspecified,
                 QualifierFlags.Const, ("x", -1), ("y", -2));
 
+        }
+
+        [Test]
+        public void ParenthesizedDeclarationBlocksTest()
+        {
+            BlockStatNode vars = this.GenerateAST("var (x int; y = 2)").As<BlockStatNode>();
+            Assert.That(vars.Children, Has.Exactly(2).Items);
+            Assert.That(vars.Children.Cast<DeclStatNode>().Select(d => d.DeclaratorList.Declarators.Single().Identifier),
+                Is.EqualTo(new[] { "x", "y" }));
+
+            BlockStatNode consts = this.GenerateAST("const (a = 1; b string = \"two\")").As<BlockStatNode>();
+            Assert.That(consts.Children, Has.Exactly(2).Items);
+            Assert.That(consts.Children.Cast<DeclStatNode>().Select(d => d.Modifiers.QualifierFlags), Has.All.EqualTo(QualifierFlags.Const));
         }
         
         protected override ASTNode GenerateAST(string src)

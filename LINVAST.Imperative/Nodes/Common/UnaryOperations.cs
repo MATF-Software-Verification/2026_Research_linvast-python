@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using LINVAST.Exceptions;
 
 namespace LINVAST.Imperative.Nodes.Common
@@ -14,6 +15,7 @@ namespace LINVAST.Imperative.Nodes.Common
                 "!" => NotPrimitive,
                 "not" => NotPrimitive,
                 "~" => BitwiseNotPrimitive,
+                "#" => LengthPrimitive,
                 "++" => IncrementPrimitive,
                 "--" => DecrementPrimitive,
                 "*" => x => x,  // TODO
@@ -186,6 +188,16 @@ namespace LINVAST.Imperative.Nodes.Common
                 return !Convert.ToBoolean(x);
             else
                 throw new EvaluationException("Cannot perform negate on non-primitive types");
+        }
+
+        public static object LengthPrimitive(object x)
+        {
+            if (x is string str)
+                return str.Length;
+            if (x is ICollection collection)
+                return collection.Count;
+
+            throw new EvaluationException("Length operation can't be performed on this expression");
         }
 
 
