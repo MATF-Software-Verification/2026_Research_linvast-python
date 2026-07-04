@@ -206,12 +206,13 @@ izgubilo bitne informacije o Python programu.
 
 ### 4.7 Sintetički pozivi
 
-Konstrukcije bez direktnog LINVAST čvora predstavljene su sintetičkim pozivima:
+Konstrukcije bez direktnog LINVAST čvora predstavljene su sintetičkim pozivima
+samo kada ih nije moguće prirodno izraziti postojećim čvorovima. Python
+comprehension izrazi se spuštaju u inicijalizaciju akumulatora i ugnježdene
+`ForStatNode`/`IfStatNode` čvorove. Kada se nalaze unutar većeg izraza,
+builder ih podiže u prethodne naredbe sa privremenim akumulatorom, a u
+originalnom izrazu ostaje običan `IdNode` tog akumulatora.
 
-- list comprehension -> `list(...)`,
-- set comprehension -> `set(...)`,
-- dict comprehension -> `dict(...)`,
-- generator expression -> `generator(...)`,
 - slicing -> `slice(...)`,
 - `await f()` -> `await(f())`,
 - f-string -> `format(...)`.

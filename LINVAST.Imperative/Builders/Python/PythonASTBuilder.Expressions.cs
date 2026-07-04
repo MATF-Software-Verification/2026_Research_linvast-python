@@ -358,16 +358,11 @@ namespace LINVAST.Imperative.Builders.Python
 
         // comp_for: ASYNC? 'for' exprlist 'in' or_test comp_iter?
         public override ASTNode VisitComp_for(Python3Parser.Comp_forContext ctx) =>
-            new ExprListNode(ctx.Start.Line, this.CollectComprehensionClauses(ctx));
+            new ExprListNode(ctx.Start.Line);
 
         // comp_if: 'if' test_nocond comp_iter?
-        public override ASTNode VisitComp_if(Python3Parser.Comp_ifContext ctx)
-        {
-            var clauses = new List<ExprNode>();
-            Python3Parser.Comp_iterContext? next = this.AddIfClause(clauses, ctx);
-            this.CollectClausesFromIter(clauses, next);
-            return new ExprListNode(ctx.Start.Line, clauses);
-        }
+        public override ASTNode VisitComp_if(Python3Parser.Comp_ifContext ctx) =>
+            new ExprListNode(ctx.Start.Line, this.Visit(ctx.test_nocond()).As<ExprNode>());
 
         // yield_expr: 'yield' yield_arg?
         public override ASTNode VisitYield_expr(Python3Parser.Yield_exprContext ctx)
@@ -834,25 +829,74 @@ namespace LINVAST.Imperative.Builders.Python
             return this.BuildComprehension(ctx.Start.Line, kind, element, ctx.comp_for());
         }
 
-        // Represents a comprehension as a synthetic call: <kind>(element, clauses...)
-        // where each clause is itself a call (for/async_for/if). This keeps the
-        // builder consistent with how other Python-specific constructs are lowered.
         private ASTNode BuildComprehension(int line, string kind, ExprNode element, Python3Parser.Comp_forContext compFor)
         {
-            var args = new List<ExprNode> { element };
-            args.AddRange(this.CollectComprehensionClauses(compFor));
-            return new FuncCallExprNode(line, new IdNode(line, kind), new ExprListNode(line, args));
+            string accumulatorName = this.NextComprehensionAccumulatorName();
+            IdNode accumulator = new(line, accumulatorName);
+            BlockStatNode expansion = this.BuildComprehensionExpansion(line, kind, accumulator, element, compFor);
+            this.pendingComprehensions.Add(new PendingComprehension(accumulatorName, expansion));
+            return new IdNode(line, accumulatorName);
         }
 
-        private List<ExprNode> CollectComprehensionClauses(Python3Parser.Comp_forContext compFor)
+        private BlockStatNode BuildComprehensionExpansion(
+            int line,
+            string kind,
+            IdNode accumulator,
+            ExprNode element,
+            Python3Parser.Comp_forContext compFor)
         {
-            var clauses = new List<ExprNode>();
+            ExprNode initializer = kind == "dict"
+                ? new DictInitNode(line)
+                : new ArrInitExprNode(line);
+            var init = new ExprStatNode(line, new AssignExprNode(line, new IdNode(line, accumulator.Identifier), initializer));
+            StatNode body = this.BuildComprehensionAction(line, kind, accumulator.Identifier, element);
+            foreach (ComprehensionClause clause in this.CollectComprehensionClauses(compFor).AsEnumerable().Reverse()) {
+                if (clause.Condition is not null) {
+                    BlockStatNode thenBody = AsBlock(body);
+                    body = new IfStatNode(ParentLine(clause.Line, clause.Condition, thenBody), clause.Condition, thenBody);
+                    continue;
+                }
+
+                BlockStatNode loopBody = AsBlock(body);
+                StatNode loop = new ForStatNode(
+                    ParentLine(clause.Line, clause.Iterable!, loopBody),
+                    this.CreateForLoopDeclaration(clause.Line, clause.Target!),
+                    clause.Iterable,
+                    null,
+                    loopBody);
+                body = clause.IsAsync ? new AsyncStatNode(clause.Line, loop) : loop;
+            }
+
+            return new BlockStatNode(line, init, body);
+        }
+
+        private StatNode BuildComprehensionAction(int line, string kind, string accumulatorName, ExprNode element)
+        {
+            if (kind == "dict" && element is DictEntryNode entry) {
+                ExprNode target = new ArrAccessExprNode(
+                    line,
+                    new IdNode(line, accumulatorName),
+                    new IdNode(entry.Key.Line, entry.Key.Identifier));
+                return new ExprStatNode(line, new AssignExprNode(line, target, entry.Value));
+            }
+
+            string method = kind == "set" ? "add" : "append";
+            var call = new FuncCallExprNode(
+                line,
+                new IdNode(line, $"{accumulatorName}.{method}"),
+                new ExprListNode(line, element));
+            return new ExprStatNode(line, call);
+        }
+
+        private List<ComprehensionClause> CollectComprehensionClauses(Python3Parser.Comp_forContext compFor)
+        {
+            var clauses = new List<ComprehensionClause>();
             Python3Parser.Comp_iterContext? next = this.AddForClause(clauses, compFor);
             this.CollectClausesFromIter(clauses, next);
             return clauses;
         }
 
-        private void CollectClausesFromIter(List<ExprNode> clauses, Python3Parser.Comp_iterContext? iter)
+        private void CollectClausesFromIter(List<ComprehensionClause> clauses, Python3Parser.Comp_iterContext? iter)
         {
             while (iter is not null) {
                 iter = iter.comp_for() is not null
@@ -861,26 +905,51 @@ namespace LINVAST.Imperative.Builders.Python
             }
         }
 
-        private Python3Parser.Comp_iterContext? AddForClause(List<ExprNode> clauses, Python3Parser.Comp_forContext ctx)
+        private Python3Parser.Comp_iterContext? AddForClause(List<ComprehensionClause> clauses, Python3Parser.Comp_forContext ctx)
         {
             ExprNode targets = this.Visit(ctx.exprlist()).As<ExprNode>();
             ExprNode iterable = this.Visit(ctx.or_test()).As<ExprNode>();
-            string id = ctx.ASYNC() is not null ? "async_for" : "for";
-            clauses.Add(new FuncCallExprNode(
-                ctx.Start.Line,
-                new IdNode(ctx.Start.Line, id),
-                new ExprListNode(ctx.Start.Line, new[] { targets, iterable })));
+            clauses.Add(ComprehensionClause.For(ctx.Start.Line, targets, iterable, ctx.ASYNC() is not null));
             return ctx.comp_iter();
         }
 
-        private Python3Parser.Comp_iterContext? AddIfClause(List<ExprNode> clauses, Python3Parser.Comp_ifContext ctx)
+        private Python3Parser.Comp_iterContext? AddIfClause(List<ComprehensionClause> clauses, Python3Parser.Comp_ifContext ctx)
         {
             ExprNode cond = this.Visit(ctx.test_nocond()).As<ExprNode>();
-            clauses.Add(new FuncCallExprNode(
-                ctx.Start.Line,
-                new IdNode(ctx.Start.Line, "if"),
-                new ExprListNode(ctx.Start.Line, cond)));
+            clauses.Add(ComprehensionClause.If(ctx.Start.Line, cond));
             return ctx.comp_iter();
+        }
+
+        private string NextComprehensionAccumulatorName() => $"__linvast_comp_{this.comprehensionAccumulatorIndex++}";
+
+        private static BlockStatNode AsBlock(StatNode stat) =>
+            stat is BlockStatNode block ? block : new BlockStatNode(stat.Line, stat);
+
+        private static int ParentLine(int line, params ASTNode[] children) =>
+            Math.Min(line, children.Min(child => child.Line));
+
+        private sealed class ComprehensionClause
+        {
+            public int Line { get; }
+            public ExprNode? Target { get; }
+            public ExprNode? Iterable { get; }
+            public ExprNode? Condition { get; }
+            public bool IsAsync { get; }
+
+            private ComprehensionClause(int line, ExprNode? target, ExprNode? iterable, ExprNode? condition, bool isAsync)
+            {
+                this.Line = line;
+                this.Target = target;
+                this.Iterable = iterable;
+                this.Condition = condition;
+                this.IsAsync = isAsync;
+            }
+
+            public static ComprehensionClause For(int line, ExprNode target, ExprNode iterable, bool isAsync) =>
+                new(line, target, iterable, null, isAsync);
+
+            public static ComprehensionClause If(int line, ExprNode condition) =>
+                new(line, null, null, condition, false);
         }
 
         private ASTNode VisitExpressionSequence(ParserRuleContext ctx)
