@@ -492,6 +492,106 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(div.RightOperand.As<IdNode>().Identifier, Is.EqualTo("b"));
         }
 
+        [Test]
+        public void InOperatorBuildsContainsCall()
+        {
+            var call = this.ParseExpression("x in items").As<FuncCallExprNode>();
+            ExprNode[] args = call.Arguments!.Expressions.ToArray();
+
+            Assert.That(call.Identifier, Is.EqualTo("contains"));
+            Assert.That(args[0].As<IdNode>().Identifier, Is.EqualTo("items"));
+            Assert.That(args[1].As<IdNode>().Identifier, Is.EqualTo("x"));
+        }
+
+        [Test]
+        public void NotInOperatorBuildsNegatedContainsCall()
+        {
+            var unary = this.ParseExpression("x not in items").As<UnaryExprNode>();
+            var call = unary.Operand.As<FuncCallExprNode>();
+            ExprNode[] args = call.Arguments!.Expressions.ToArray();
+
+            Assert.That(call.Identifier, Is.EqualTo("contains"));
+            Assert.That(args[0].As<IdNode>().Identifier, Is.EqualTo("items"));
+            Assert.That(args[1].As<IdNode>().Identifier, Is.EqualTo("x"));
+        }
+
+        [Test]
+        public void IsOperatorBuildsIdEqualityComparison()
+        {
+            var rel = this.ParseExpression("a is b").As<RelExprNode>();
+            var left = rel.LeftOperand.As<FuncCallExprNode>();
+            var right = rel.RightOperand.As<FuncCallExprNode>();
+
+            Assert.That(left.Identifier, Is.EqualTo("id"));
+            Assert.That(left.Arguments!.Expressions.Single().As<IdNode>().Identifier, Is.EqualTo("a"));
+            Assert.That(right.Identifier, Is.EqualTo("id"));
+            Assert.That(right.Arguments!.Expressions.Single().As<IdNode>().Identifier, Is.EqualTo("b"));
+        }
+
+        [Test]
+        public void IsNotOperatorBuildsNegatedIdEquality()
+        {
+            var unary = this.ParseExpression("a is not b").As<UnaryExprNode>();
+            var rel = unary.Operand.As<RelExprNode>();
+
+            Assert.That(rel.LeftOperand.As<FuncCallExprNode>().Identifier, Is.EqualTo("id"));
+            Assert.That(rel.RightOperand.As<FuncCallExprNode>().Identifier, Is.EqualTo("id"));
+        }
+
+        [Test]
+        public void MatMulOperatorBuildsMatmulCall()
+        {
+            var call = this.ParseExpression("x @ y").As<FuncCallExprNode>();
+            ExprNode[] args = call.Arguments!.Expressions.ToArray();
+
+            Assert.That(call.Identifier, Is.EqualTo("matmul"));
+            Assert.That(args[0].As<IdNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(args[1].As<IdNode>().Identifier, Is.EqualTo("y"));
+        }
+
+        [Test]
+        public void PowerAssignmentBuildsPowCall()
+        {
+            var stat = this.ParseStatement("x **= 2\n").As<ExprStatNode>();
+            var assign = stat.Expression.As<AssignExprNode>();
+            var call = assign.RightOperand.As<FuncCallExprNode>();
+            ExprNode[] args = call.Arguments!.Expressions.ToArray();
+
+            Assert.That(assign.LeftOperand.As<IdNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(call.Identifier, Is.EqualTo("pow"));
+            Assert.That(args[0].As<IdNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(args[1].As<LitExprNode>().Value, Is.EqualTo(2L));
+        }
+
+        [Test]
+        public void FloorDivisionAssignmentBuildsFloorOfDivision()
+        {
+            var stat = this.ParseStatement("x //= 2\n").As<ExprStatNode>();
+            var assign = stat.Expression.As<AssignExprNode>();
+            var call = assign.RightOperand.As<FuncCallExprNode>();
+
+            Assert.That(assign.LeftOperand.As<IdNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(call.Identifier, Is.EqualTo("floor"));
+
+            var div = call.Arguments!.Expressions.Single().As<ArithmExprNode>();
+            Assert.That(div.LeftOperand.As<IdNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(div.RightOperand.As<LitExprNode>().Value, Is.EqualTo(2L));
+        }
+
+        [Test]
+        public void MatMulAssignmentBuildsMatmulCall()
+        {
+            var stat = this.ParseStatement("x @= m\n").As<ExprStatNode>();
+            var assign = stat.Expression.As<AssignExprNode>();
+            var call = assign.RightOperand.As<FuncCallExprNode>();
+            ExprNode[] args = call.Arguments!.Expressions.ToArray();
+
+            Assert.That(assign.LeftOperand.As<IdNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(call.Identifier, Is.EqualTo("matmul"));
+            Assert.That(args[0].As<IdNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(args[1].As<IdNode>().Identifier, Is.EqualTo("m"));
+        }
+
         private ExprNode ParseExpression(string source)
             => this.builder.BuildFromSource(source, parser => parser.test()).As<ExprNode>();
 
