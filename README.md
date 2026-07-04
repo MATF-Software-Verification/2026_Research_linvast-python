@@ -5,9 +5,9 @@ kod u zajednički LINVAST AST model.
 
 ## Autori
 
-- Mihajlo Živković
-- Svetozar Iković
-- Petar Vuković
+- Mihajlo Živković 1132/2025
+- Svetozar Iković 1072/2024
+- Petar Vuković 1035/2024
 
 ## Prevođenje i pokretanje
 
