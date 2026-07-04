@@ -103,14 +103,30 @@ namespace LINVAST.Imperative.Builders.Python
             }
 
             if (ctx.augassign() is not null) {
+                int line = ctx.Start.Line;
                 ExprNode target = this.Visit(ctx.testlist_star_expr()[0]).As<ExprNode>();
-                AssignOpNode op = AssignOpNode.FromSymbol(ctx.augassign().Start.Line, ctx.augassign().GetText());
                 Python3Parser.TestlistContext testlistCtx = ctx.testlist();
                 ExprNode value = testlistCtx is not null
                     ? this.Visit(testlistCtx).As<ExprNode>()
                     : this.Visit(ctx.yield_expr(0)).As<ExprNode>();
-                var assignExpr = new AssignExprNode(ctx.Start.Line, target, op, value);
-                return new ExprStatNode(ctx.Start.Line, assignExpr);
+
+                string augSymbol = ctx.augassign().GetText();
+                if (augSymbol is "**=" or "//=" or "@=") {
+                    // Re-visit for an independent instance; ASTNode re-parents any shared child.
+                    ExprNode targetCopy = this.Visit(ctx.testlist_star_expr()[0]).As<ExprNode>();
+                    ExprNode rhsCall = augSymbol switch
+                    {
+                        "**=" => new FuncCallExprNode(line, new IdNode(line, "pow"), new ExprListNode(line, new[] { targetCopy, value })),
+                        "//=" => new FuncCallExprNode(line, new IdNode(line, "floor"),
+                            new ExprListNode(line, new[] { (ExprNode)new ArithmExprNode(line, targetCopy, ArithmOpNode.FromSymbol(line, "/"), value) })),
+                        _ => new FuncCallExprNode(line, new IdNode(line, "matmul"), new ExprListNode(line, new[] { targetCopy, value })),
+                    };
+                    return new ExprStatNode(line, new AssignExprNode(line, target, rhsCall));
+                }
+
+                AssignOpNode op = AssignOpNode.FromSymbol(ctx.augassign().Start.Line, augSymbol);
+                var assignExpr = new AssignExprNode(line, target, op, value);
+                return new ExprStatNode(line, assignExpr);
             }
 
             var assignTokens = ctx.children

@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -84,19 +83,15 @@ namespace LINVAST.Imperative.Builders.Python
                 => this.Visit(exprs[index]).As<ExprNode>();
 
             if (ops.Length == 1)
-                return new RelExprNode(ctx.Start.Line, first, this.CreateRelOp(ctx.Start.Line, ops[0]), Operand(1));
+                return this.CreateComparison(ctx.Start.Line, first, ops[0], Operand(1));
 
-            ExprNode result = new RelExprNode(
-                exprs[0].Start.Line,
-                first,
-                this.CreateRelOp(exprs[0].Start.Line, ops[0]),
-                Operand(1));
+            ExprNode result = this.CreateComparison(exprs[0].Start.Line, first, ops[0], Operand(1));
 
             for (int i = 1; i < ops.Length; i++) {
-                var comparison = new RelExprNode(
+                ExprNode comparison = this.CreateComparison(
                     exprs[i].Start.Line,
                     Operand(i),
-                    this.CreateRelOp(exprs[i].Start.Line, ops[i]),
+                    ops[i],
                     Operand(i + 1));
                 result = new LogicExprNode(
                     ctx.Start.Line,
@@ -109,8 +104,14 @@ namespace LINVAST.Imperative.Builders.Python
         }
 
         // comp_op: '<' | '>' | '==' | '>=' | '<=' | '!=' | 'in' | 'not' 'in' | 'is' | 'is' 'not'
-        public override ASTNode VisitComp_op(Python3Parser.Comp_opContext ctx) =>
-            this.CreateRelOp(ctx.Start.Line, ctx);
+        public override ASTNode VisitComp_op(Python3Parser.Comp_opContext ctx)
+        {
+            string symbol = ctx.GetText().Replace(" ", string.Empty).ToLowerInvariant();
+            if (symbol is "in" or "notin" or "is" or "isnot")
+                throw new SyntaxErrorException("in/is comparison operators should be handled by VisitComparison");
+
+            return RelOpNode.FromSymbol(ctx.Start.Line, ctx.GetText());
+        }
 
         // expr: atom_expr | expr op expr | unary expr
         public override ASTNode VisitExpr(Python3Parser.ExprContext ctx)
@@ -704,7 +705,7 @@ namespace LINVAST.Imperative.Builders.Python
             if (ctx.STAR() is not null)
                 return new ArithmExprNode(line, lhs, ArithmOpNode.FromSymbol(line, "*"), rhs);
             if (ctx.AT() is not null)
-                return new ArithmExprNode(line, lhs, new ArithmOpNode(line, "@", BinaryOperations.MultiplyPrimitive), rhs);
+                return new FuncCallExprNode(line, new IdNode(line, "matmul"), new ExprListNode(line, new[] { lhs, rhs }));
             if (ctx.DIV() is not null)
                 return new ArithmExprNode(line, lhs, ArithmOpNode.FromSymbol(line, "/"), rhs);
             if (ctx.MOD() is not null)
@@ -732,30 +733,28 @@ namespace LINVAST.Imperative.Builders.Python
         }
 
 
-        private RelOpNode CreateRelOp(int line, Python3Parser.Comp_opContext ctx)
+        private ExprNode CreateComparison(int line, ExprNode lhs, Python3Parser.Comp_opContext opCtx, ExprNode rhs)
         {
-            string symbol = ctx.GetText().Replace(" ", string.Empty).ToLowerInvariant();
-            return symbol switch
-            {
-                "in" => new RelOpNode(line, "in", (a, b) => ContainsValue(b, a)),
-                "notin" => new RelOpNode(line, "not in", (a, b) => !ContainsValue(b, a)),
-                "is" => new RelOpNode(line, "is", (a, b) => ReferenceEquals(a, b) || Equals(a, b)),
-                "isnot" => new RelOpNode(line, "is not", (a, b) => !ReferenceEquals(a, b) && !Equals(a, b)),
-                _ => RelOpNode.FromSymbol(line, ctx.GetText()),
-            };
-        }
+            FuncCallExprNode IdCall(ExprNode e)
+                => new(line, new IdNode(line, "id"), new ExprListNode(line, new[] { e }));
 
-        private static bool ContainsValue(object container, object item)
-        {
-            if (container is string str)
-                return str.Contains(item?.ToString() ?? string.Empty);
-            if (container is IEnumerable sequence and not string) {
-                foreach (object? value in sequence) {
-                    if (Equals(value, item))
-                        return true;
+            string symbol = opCtx.GetText().Replace(" ", string.Empty).ToLowerInvariant();
+            switch (symbol) {
+                case "in":
+                    return new FuncCallExprNode(line, new IdNode(line, "contains"), new ExprListNode(line, new[] { rhs, lhs }));
+                case "notin": {
+                    var call = new FuncCallExprNode(line, new IdNode(line, "contains"), new ExprListNode(line, new[] { rhs, lhs }));
+                    return new UnaryExprNode(line, UnaryOpNode.FromSymbol(line, "not"), call);
                 }
+                case "is":
+                    return new RelExprNode(line, IdCall(lhs), RelOpNode.FromSymbol(line, "=="), IdCall(rhs));
+                case "isnot": {
+                    var comparison = new RelExprNode(line, IdCall(lhs), RelOpNode.FromSymbol(line, "=="), IdCall(rhs));
+                    return new UnaryExprNode(line, UnaryOpNode.FromSymbol(line, "not"), comparison);
+                }
+                default:
+                    return new RelExprNode(line, lhs, RelOpNode.FromSymbol(line, opCtx.GetText()), rhs);
             }
-            return false;
         }
 
         private ExprNode ApplyTrailer(ExprNode expr, Python3Parser.TrailerContext trailer)
