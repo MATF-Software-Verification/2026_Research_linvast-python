@@ -157,13 +157,13 @@ x = 2
 
 Prva naredba može postati deklaracija, a druga ostaje obična dodela.
 
-Anotirana dodela:
+#### Dodele sa anotacijom
 
 ```python
 x: int = 1
 ```
 
-prevodi se u deklaraciju sa tipom `int` i inicijalizatorom `1`.
+Prevodi se u deklaraciju sa tipom `int` i inicijalizatorom `1`.
 
 ### 4.4 Tuple/list unpacking
 
