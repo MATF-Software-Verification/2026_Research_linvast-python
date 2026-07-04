@@ -106,61 +106,65 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
-        public void MatchStatementBuildsMatchStatNode()
+        public void MatchStatementBuildsSwitchStatNode()
         {
-            var matchStatement = this.ParseStatement(
-                "match x:\n    case 1:\n        pass\n").As<MatchStatNode>();
+            var switchStatement = this.ParseStatement(
+                "match x:\n    case 1:\n        pass\n").As<SwitchStatNode>();
 
-            Assert.That(matchStatement.Subject, Is.TypeOf<IdNode>());
-            Assert.That(matchStatement.Cases.Count(), Is.EqualTo(1));
+            Assert.That(switchStatement.Condition, Is.TypeOf<IdNode>());
+            Assert.That(switchStatement.Condition.As<IdNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(switchStatement.Body.Children.Count, Is.EqualTo(1));
 
-            CaseNode caseNode = matchStatement.Cases.Single();
-            Assert.That(caseNode.Pattern, Is.TypeOf<PatternLiteralNode>());
-            Assert.That(caseNode.Guard, Is.Null);
-            Assert.That(caseNode.Body.As<BlockStatNode>().Children.Single(), Is.TypeOf<EmptyStatNode>());
+            LabeledStatNode caseNode = switchStatement.Body.Children.Single().As<LabeledStatNode>();
+            Assert.That(caseNode.Label, Is.EqualTo("case 1"));
+            Assert.That(caseNode.Statement.As<BlockStatNode>().Children.Single(), Is.TypeOf<EmptyStatNode>());
         }
 
         [Test]
-        public void MatchCaseWithGuardBuildsCaseNodeWithGuard()
+        public void MatchCaseWithGuardIncludesGuardInLabel()
         {
-            var matchStatement = this.ParseStatement(
-                "match x:\n    case 1 if x > 0:\n        pass\n").As<MatchStatNode>();
+            var switchStatement = this.ParseStatement(
+                "match x:\n    case 1 if x > 0:\n        pass\n").As<SwitchStatNode>();
 
-            CaseNode caseNode = matchStatement.Cases.Single();
-            Assert.That(caseNode.Guard, Is.TypeOf<RelExprNode>());
+            Assert.That(switchStatement.Body.Children.Single().As<LabeledStatNode>().Label, Is.EqualTo("case 1 if x > 0"));
         }
 
         [Test]
-        public void MatchMultipleCasesBuildsCaseNodes()
+        public void MatchMultipleCasesBuildLabeledStats()
         {
-            var matchStatement = this.ParseStatement(
-                "match x:\n    case 1:\n        pass\n    case _:\n        pass\n").As<MatchStatNode>();
+            var switchStatement = this.ParseStatement(
+                "match x:\n    case 1:\n        pass\n    case _:\n        pass\n").As<SwitchStatNode>();
 
-            Assert.That(matchStatement.Cases.Count(), Is.EqualTo(2));
-            Assert.That(matchStatement.Cases.First().Pattern, Is.TypeOf<PatternLiteralNode>());
-            Assert.That(matchStatement.Cases.Last().Pattern, Is.TypeOf<PatternWildcardNode>());
-        }
-
-        [Test]
-        public void MatchAsPatternBuildsPatternAsNode()
-        {
-            var matchStatement = this.ParseStatement(
-                "match x:\n    case [1, 2] as pair:\n        pass\n").As<MatchStatNode>();
-
-            Assert.That(matchStatement.Cases.Single().Pattern, Is.TypeOf<PatternAsNode>());
-            Assert.That(matchStatement.Cases.Single().Pattern.As<PatternAsNode>().Target.Identifier, Is.EqualTo("pair"));
-        }
-
-        [Test]
-        public void MatchOpenSequencePatternCaseBuildsPatternSequenceNode()
-        {
-            var matchStatement = this.ParseStatement(
-                "match x:\n    case 1, 2:\n        pass\n").As<MatchStatNode>();
-
-            Assert.That(matchStatement.Cases.Single().Pattern, Is.TypeOf<PatternSequenceNode>());
             Assert.That(
-                matchStatement.Cases.Single().Pattern.As<PatternSequenceNode>().Kind,
-                Is.EqualTo(SequencePatternKind.OpenParen));
+                switchStatement.Body.Children.Select(c => c.As<LabeledStatNode>().Label),
+                Is.EqualTo(new[] { "case 1", "default" }));
+        }
+
+        [Test]
+        public void MatchComplexPatternUsesSourceTextAsLabel()
+        {
+            var switchStatement = this.ParseStatement(
+                "match x:\n    case [1, 2] as pair:\n        pass\n").As<SwitchStatNode>();
+
+            Assert.That(switchStatement.Body.Children.Single().As<LabeledStatNode>().Label, Is.EqualTo("case [1, 2] as pair"));
+        }
+
+        [Test]
+        public void MatchOpenSequencePatternUsesSourceTextAsLabel()
+        {
+            var switchStatement = this.ParseStatement(
+                "match x:\n    case 1, 2:\n        pass\n").As<SwitchStatNode>();
+
+            Assert.That(switchStatement.Body.Children.Single().As<LabeledStatNode>().Label, Is.EqualTo("case 1, 2"));
+        }
+
+        [Test]
+        public void MatchOrPatternUsesSourceTextAsLabel()
+        {
+            var switchStatement = this.ParseStatement(
+                "match x:\n    case 2 | 3:\n        pass\n").As<SwitchStatNode>();
+
+            Assert.That(switchStatement.Body.Children.Single().As<LabeledStatNode>().Label, Is.EqualTo("case 2 | 3"));
         }
 
         [Test]
