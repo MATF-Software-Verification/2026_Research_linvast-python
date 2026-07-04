@@ -82,14 +82,38 @@ namespace LINVAST.Tests.Imperative.Builders.Java
         public void AnnotationLocalVariableTest()
         {
             string src1 = "@Edible(true) String str = null;";
-            Assert.That(() => this.GenerateAST(src1), Throws.InstanceOf<NotImplementedException>());
+            DeclStatNode ast1 = this.GenerateAST(src1).As<DeclStatNode>();
+
+            Assert.That(ast1.Tags.Single().Identifier, Is.EqualTo("Edible"));
+            Assert.That(ast1.Specifiers.TypeName, Is.EqualTo("String"));
+            Assert.That(ast1.DeclaratorList.Declarators.Single().As<VarDeclNode>().Identifier, Is.EqualTo("str"));
         }
 
         [Test]
         public void ArrayLocalVariableTest()
         {
             string src1 = "String str[] = null;";
-            Assert.That(() => this.GenerateAST(src1), Throws.InstanceOf<NotImplementedException>());
+            DeclStatNode ast1 = this.GenerateAST(src1).As<DeclStatNode>();
+
+            Assert.That(ast1.Specifiers.TypeName, Is.EqualTo("String"));
+            Assert.That(ast1.DeclaratorList.Declarators.Single(), Is.InstanceOf<ArrDeclNode>());
+            Assert.That(ast1.DeclaratorList.Declarators.Single().Identifier, Is.EqualTo("str"));
+
+            this.AssertArrayDeclaration("int nums[] = {1, 2};", "int", "nums", init: new object[] { 1, 2 });
+        }
+
+        [Test]
+        public void MultipleArrayDeclaratorsTest()
+        {
+            DeclStatNode ast = this.GenerateAST("int left[], right[] = {1, 2};").As<DeclStatNode>();
+
+            Assert.That(ast.Specifiers.TypeName, Is.EqualTo("int"));
+            Assert.That(ast.DeclaratorList.Declarators, Has.All.InstanceOf<ArrDeclNode>());
+            Assert.That(ast.DeclaratorList.Declarators.Select(d => d.Identifier), Is.EqualTo(new[] { "left", "right" }));
+
+            ArrDeclNode initialized = ast.DeclaratorList.Declarators.Last().As<ArrDeclNode>();
+            Assert.That(initialized.Initializer!.Initializers.Select(LINVAST.Imperative.Visitors.ConstantExpressionEvaluator.Evaluate),
+                Is.EqualTo(new object[] { 1, 2 }));
         }
 
 
@@ -97,4 +121,3 @@ namespace LINVAST.Tests.Imperative.Builders.Java
             => new JavaASTBuilder().BuildFromSource(src, p => p.localVariableDeclaration());
     }
 }
-

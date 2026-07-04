@@ -89,12 +89,7 @@ namespace LINVAST.Imperative.Builders.Go
             DeclSpecsNode? retTypeNode = null;
             GoParser.ResultContext? resultContext = context.result();
             if (resultContext is not null) {
-                if (resultContext.parameters() is not null) {
-                    throw new NotImplementedException("Parameters as return value of a function are not supported");
-                }
-
-                TypeNameNode retType = this.Visit(resultContext.type_()).As<TypeNameNode>();
-
+                TypeNameNode retType = this.ResultTypeName(resultContext);
                 retTypeNode = new DeclSpecsNode(context.Start.Line, retType);
             } else {
                 retTypeNode = new DeclSpecsNode(context.Start.Line, "void");
@@ -113,9 +108,9 @@ namespace LINVAST.Imperative.Builders.Go
         {
             FuncParamNode receiver = this.Visit(context.receiver()).As<FuncParamNode>();
             var funcName = new IdNode(context.Start.Line, receiver.Specifiers.TypeName + "." + context.IDENTIFIER().GetText());
-            // todo proper receiver params (e.g. we're omitting receiver param name here)
             
             FuncNode signature = this.Visit(context.signature()).As<FuncNode>();
+            FuncParamsNode parameters = this.PrependReceiverParameter(context.Start.Line, receiver, signature.ParametersNode);
             BlockStatNode? body = null;
             if (context.block() is not null) {
                 body = this.Visit(context.block()).As<BlockStatNode>();
@@ -123,23 +118,18 @@ namespace LINVAST.Imperative.Builders.Go
 
             var declSpecs = (DeclSpecsNode)signature.ChildrenWithoutTags.ElementAt(0);
 
-            if (signature.ParametersNode is null && body is null) {
+            if (!parameters.Parameters.Any() && body is null) {
                 return new FuncNode(context.Start.Line, declSpecs,
                     new FuncDeclNode(context.Start.Line, funcName));
             }
 
-            if (signature.ParametersNode is not null) {
-                return new FuncNode(context.Start.Line, declSpecs,
-                    new FuncDeclNode(context.Start.Line, funcName, signature.ParametersNode));
-            }
-
             if (body is not null) {
                 return new FuncNode(context.Start.Line, declSpecs,
-                    new FuncDeclNode(context.Start.Line, funcName, body));
+                    new FuncDeclNode(context.Start.Line, funcName, parameters, body));
             }
 
             return new FuncNode(context.Start.Line, declSpecs,
-                new FuncDeclNode(context.Start.Line, funcName, signature.ParametersNode, body));
+                new FuncDeclNode(context.Start.Line, funcName, parameters));
         }
 
         public override ASTNode VisitReceiver(GoParser.ReceiverContext context)
@@ -154,6 +144,16 @@ namespace LINVAST.Imperative.Builders.Go
             }
 
             return receiver.Parameters.Single();
+        }
+
+        private FuncParamsNode PrependReceiverParameter(int line, FuncParamNode receiver, FuncParamsNode? parameters)
+        {
+            FuncParamNode[] merged = new[] { receiver }
+                .Concat(parameters?.Parameters ?? Enumerable.Empty<FuncParamNode>())
+                .ToArray();
+            var result = new FuncParamsNode(line, merged);
+            result.IsVariadic = parameters?.IsVariadic ?? false;
+            return result;
         }
 
         #endregion

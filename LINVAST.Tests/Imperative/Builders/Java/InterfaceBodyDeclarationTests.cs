@@ -21,8 +21,12 @@ namespace LINVAST.Tests.Imperative.Builders.Java
         [Test]
         public void WithAnnotationClassBodyDeclTest()
         {
-            string src1 = "@Override public string toString() {return this.attr.toString();}";
-            Assert.That(() => this.GenerateAST(src1), Throws.InstanceOf<NotImplementedException>());
+            string src1 = "@Override public String toString() {}";
+            DeclStatNode ast1 = this.GenerateAST(src1).As<DeclStatNode>();
+
+            Assert.That(ast1.Tags.Single().Identifier, Is.EqualTo("Override"));
+            Assert.That(ast1.Specifiers.Modifiers.ToString(), Is.EqualTo("public"));
+            Assert.That(ast1.DeclaratorList.Declarators.Single().As<FuncDeclNode>().Identifier, Is.EqualTo("toString"));
         }
 
         [Test]
@@ -64,6 +68,16 @@ namespace LINVAST.Tests.Imperative.Builders.Java
                 Is.EqualTo("f"));
             Assert.That(ast1.DeclaratorList.Declarators.First().As<FuncDeclNode>().Definition?.Children.Count,
                 Is.EqualTo(0));
+        }
+
+        [Test]
+        public void ThrowsInterfaceMethodTest()
+        {
+            string src1 = "String f() throws Exception {}";
+            DeclStatNode ast1 = this.GenerateAST(src1).As<DeclStatNode>();
+
+            Assert.That(ast1.Specifiers.TypeName, Is.EqualTo("String"));
+            Assert.That(ast1.DeclaratorList.Declarators.Single().As<FuncDeclNode>().Identifier, Is.EqualTo("f"));
         }
 
         [Test]
@@ -116,7 +130,10 @@ namespace LINVAST.Tests.Imperative.Builders.Java
         public void WithBracketsInterfaceMethodTest()
         {
             string src1 = "String f()[] {}";
-            Assert.That(() => this.GenerateAST(src1), Throws.InstanceOf<NotImplementedException>());
+            DeclStatNode ast1 = this.GenerateAST(src1).As<DeclStatNode>();
+
+            Assert.That(ast1.Specifiers.TypeName, Is.EqualTo("String[]"));
+            Assert.That(ast1.DeclaratorList.Declarators.Single().As<FuncDeclNode>().Identifier, Is.EqualTo("f"));
         }
 
         [Test]

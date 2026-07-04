@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Linq;
 using LINVAST.Imperative.Builders.C;
 using LINVAST.Imperative.Builders.Go;
 using LINVAST.Imperative.Nodes;
+using LINVAST.Imperative.Visitors;
 using LINVAST.Nodes;
 using LINVAST.Tests.Imperative.Builders.Common;
 using NUnit.Framework;
@@ -121,6 +123,71 @@ namespace LINVAST.Tests.Imperative.Builders.Go
             this.AssertFunctionCallExpression("g(((1 << 2) + 4) >> 3)", "g", ((1 << 2) + 4) >> 3);
             this.AssertFunctionCallExpression("g(1.1 > 1.0 && 1.0 > 1.02)", "g", false);
             this.AssertFunctionCallExpression("h(1.01 > 1.0 || 1.0 > 1.02)", "h", true);
+        }
+
+        [Test]
+        public void ExtendedLiteralExpressionTests()
+        {
+            Assert.That(this.GenerateAST("nil"), Is.InstanceOf<NullLitExprNode>());
+            Assert.That(ConstantExpressionEvaluator.Evaluate(this.GenerateAST("0b1010").As<LitExprNode>()), Is.EqualTo(10L));
+            Assert.That(ConstantExpressionEvaluator.Evaluate(this.GenerateAST("077").As<LitExprNode>()), Is.EqualTo(63L));
+            Assert.That(ConstantExpressionEvaluator.Evaluate(this.GenerateAST("`raw string`").As<LitExprNode>()), Is.EqualTo("raw string"));
+            Assert.That(ConstantExpressionEvaluator.Evaluate(this.GenerateAST("1i").As<LitExprNode>()), Is.EqualTo("1i"));
+        }
+
+        [Test]
+        public void CompositeSliceAndAssertionExpressionTests()
+        {
+            ConsExprNode composite = this.GenerateAST("[]int{1, 2}").As<ConsExprNode>();
+            Assert.That(composite.Identifier, Is.EqualTo("[]int"));
+            Assert.That(composite.Arguments!.Expressions.Select(ConstantExpressionEvaluator.Evaluate), Is.EqualTo(new object[] { 1L, 2L }));
+
+            FuncCallExprNode slice = this.GenerateAST("xs[1:3]").As<FuncCallExprNode>();
+            Assert.That(slice.Identifier, Is.EqualTo("__linvast_slice"));
+            Assert.That(slice.Arguments!.Expressions.First().As<IdNode>().Identifier, Is.EqualTo("xs"));
+            Assert.That(slice.Arguments!.Expressions.Last().As<IdNode>().Identifier, Is.EqualTo("[1:3]"));
+
+            FuncCallExprNode openSlice = this.GenerateAST("xs[:3]").As<FuncCallExprNode>();
+            Assert.That(openSlice.Identifier, Is.EqualTo("__linvast_slice"));
+            Assert.That(openSlice.Arguments!.Expressions.Last().As<IdNode>().Identifier, Is.EqualTo("[:3]"));
+
+            FuncCallExprNode assertion = this.GenerateAST("x.(int)").As<FuncCallExprNode>();
+            Assert.That(assertion.Identifier, Is.EqualTo("__linvast_type_assert"));
+        }
+
+        [Test]
+        public void KeyedCompositeLiteralExpressionTests()
+        {
+            ConsExprNode composite = this.GenerateAST("Point{x: 1, y: 2}").As<ConsExprNode>();
+
+            Assert.That(composite.Identifier, Is.EqualTo("Point"));
+            Assert.That(composite.Arguments!.Expressions, Has.All.InstanceOf<DictEntryNode>());
+            Assert.That(composite.Arguments!.Expressions.Cast<DictEntryNode>().Select(e => e.Key.Identifier),
+                Is.EqualTo(new[] { "x", "y" }));
+            Assert.That(composite.Arguments!.Expressions.Cast<DictEntryNode>().Select(e => ConstantExpressionEvaluator.Evaluate(e.Value)),
+                Is.EqualTo(new object[] { 1L, 2L }));
+        }
+
+        [Test]
+        public void ConversionAndVariadicCallExpressionTests()
+        {
+            ConsExprNode conversion = this.GenerateAST("[]int(xs)").As<ConsExprNode>();
+            Assert.That(conversion.Identifier, Is.EqualTo("[]int"));
+
+            FuncCallExprNode call = this.GenerateAST("f(xs...)").As<FuncCallExprNode>();
+            Assert.That(call.Arguments!.Expressions.Last().As<IdNode>().Identifier, Is.EqualTo("..."));
+
+            LambdaFuncExprNode lambda = this.GenerateAST("func(x int, y ...string) { return }").As<LambdaFuncExprNode>();
+            Assert.That(lambda.Parameters, Has.Exactly(2).Items);
+            Assert.That(lambda.ParametersNode!.IsVariadic, Is.True);
+            Assert.That(lambda.Definition.Children.Single(), Is.InstanceOf<JumpStatNode>());
+        }
+
+        [Test]
+        public void MarkerOperatorExpressionTests()
+        {
+            Assert.That(this.GenerateAST("<-ch").As<FuncCallExprNode>().Identifier, Is.EqualTo("__linvast_recv"));
+            Assert.That(this.GenerateAST("mask &^ bit").As<FuncCallExprNode>().Identifier, Is.EqualTo("__linvast_bit_clear"));
         }
 
 

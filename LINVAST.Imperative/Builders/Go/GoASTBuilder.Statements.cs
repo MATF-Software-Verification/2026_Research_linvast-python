@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using LINVAST.Builders;
 using LINVAST.Imperative.Nodes;
+using LINVAST.Imperative.Nodes.Common;
 using LINVAST.Nodes;
 using Serilog;
 
@@ -56,10 +57,10 @@ namespace LINVAST.Imperative.Builders.Go
             AssignOpNode.FromSymbol(context.Start.Line, context.GetText()); // this should cover most of the cases
 
         public override ASTNode VisitBreakStmt(GoParser.BreakStmtContext context)  =>
-            throw new NotImplementedException("break statement is unsupported");
+            new JumpStatNode(context.Start.Line, JumpStatType.Break);
 
         public override ASTNode VisitContinueStmt(GoParser.ContinueStmtContext context)  =>
-            throw new NotImplementedException("continue statement is unsupported");
+            new JumpStatNode(context.Start.Line, JumpStatType.Continue);
 
         public override ASTNode VisitEmptyStmt(GoParser.EmptyStmtContext context) =>
             new EmptyStatNode(context.Start.Line);
@@ -74,30 +75,46 @@ namespace LINVAST.Imperative.Builders.Go
             }
 
             if (context.forClause() is not null) {
-                // traditional for loop
                 GoParser.ForClauseContext clauseContext = context.forClause();
-                
-                // todo ForStatNode requires expressions for init and incr, but we have statements
-                throw new NotImplementedException("For loops with ForClause are unsupported");
+                ExprNode? init = this.SimpleStatementExpression(clauseContext.initStmt);
+                ExprNode? condition = clauseContext.expression() is null
+                    ? null
+                    : this.Visit(clauseContext.expression()).As<ExprNode>();
+                ExprNode? post = this.SimpleStatementExpression(clauseContext.postStmt);
+                return new ForStatNode(context.Start.Line, init, condition, post, body);
             }
 
-            throw new NotImplementedException("Unsupported for statement form");
+            if (context.rangeClause() is not null) {
+                ExprNode range = this.Visit(context.rangeClause()).As<ExprNode>();
+                return new ForStatNode(context.Start.Line, range, null, null, body);
+            }
+
+            return new ForStatNode(context.Start.Line, (ExprNode?)null, null, null, body);
         }
 
-        // public override ASTNode VisitForClause(GoParser.ForClauseContext context) => base.VisitForClause(context);
+        public override ASTNode VisitRangeClause(GoParser.RangeClauseContext context)
+        {
+            ExprNode iterable = this.Visit(context.expression()).As<ExprNode>();
+            IEnumerable<ExprNode> lhs = Enumerable.Empty<ExprNode>();
+            if (context.expressionList() is not null) {
+                lhs = this.Visit(context.expressionList()).As<ExprListNode>().Expressions;
+            } else if (context.identifierList() is not null) {
+                lhs = this.Visit(context.identifierList()).As<IdListNode>().Identifiers;
+            }
 
-        public override ASTNode VisitRangeClause(GoParser.RangeClauseContext context) =>
-            throw new NotImplementedException("range clause in for statement is unsupported");
+            string mode = context.DECLARE_ASSIGN() is not null ? ":=" : "=";
+            ExprNode[] args = new ExprNode[] { new IdNode(context.Start.Line, mode) }
+                .Concat(lhs)
+                .Append(iterable)
+                .ToArray();
+            return this.MarkerExpression(context.Start.Line, "__linvast_range", args);
+        }
         
         public override ASTNode VisitGotoStmt(GoParser.GotoStmtContext context) => 
             new JumpStatNode(context.Start.Line, new IdNode(context.Start.Line, context.IDENTIFIER().GetText()));
 
         public override ASTNode VisitIfStmt(GoParser.IfStmtContext context)
         {
-            if (context.simpleStmt() is not null) {
-                throw new NotImplementedException("Preceding statements in if statements are not supported");
-            }
-
             ExprNode cond = this.Visit(context.expression()).As<ExprNode>();
             BlockStatNode body = this.Visit(context.block()[0]).As<BlockStatNode>();
             
@@ -110,20 +127,30 @@ namespace LINVAST.Imperative.Builders.Go
                 elseStmt = this.Visit(context.block()[1]).As<BlockStatNode>();
             }
 
-            return elseStmt is null ? 
-                new IfStatNode(context.Start.Line, cond, body) : 
+            IfStatNode ifStmt = elseStmt is null ?
+                new IfStatNode(context.Start.Line, cond, body) :
                 new IfStatNode(context.Start.Line, cond, body, elseStmt);
+
+            if (context.simpleStmt() is null)
+                return ifStmt;
+
+            return new BlockStatNode(context.Start.Line, this.Visit(context.simpleStmt()), ifStmt);
         }
 
         public override ASTNode VisitLabeledStmt(GoParser.LabeledStmtContext context)
         {
             string label = context.IDENTIFIER().GetText();
-            StatNode statement = this.Visit(context.statement()).As<StatNode>();
+            StatNode statement = context.statement() is null
+                ? new EmptyStatNode(context.Start.Line)
+                : this.Visit(context.statement()).As<StatNode>();
             return new LabeledStatNode(context.Start.Line, label, statement);
         }
 
         public override ASTNode VisitReturnStmt(GoParser.ReturnStmtContext context)
         {
+            if (context.expressionList() is null)
+                return new JumpStatNode(context.Start.Line, (ExprNode?)null);
+
             var exprList = this.Visit(context.expressionList()).As<ExprListNode>();
             return new JumpStatNode(context.Start.Line, exprList);
         }
@@ -147,51 +174,183 @@ namespace LINVAST.Imperative.Builders.Go
         }
         
         public override ASTNode VisitGoStmt(GoParser.GoStmtContext context) =>
-            throw new NotImplementedException("go statement is unsupported");
+            this.MarkerStatement(context.Start.Line, "__linvast_go", this.Visit(context.expression()).As<ExprNode>());
         
         public override ASTNode VisitDeferStmt(GoParser.DeferStmtContext context) =>
-            throw new NotImplementedException("defer statement is unsupported");
+            this.MarkerStatement(context.Start.Line, "__linvast_defer", this.Visit(context.expression()).As<ExprNode>());
         
-        public override ASTNode VisitSelectStmt(GoParser.SelectStmtContext context) =>
-            throw new NotImplementedException("select statement is unsupported");
+        public override ASTNode VisitSelectStmt(GoParser.SelectStmtContext context)
+        {
+            var body = new BlockStatNode(context.Start.Line, context.commClause().Select(this.Visit));
+            return new SwitchStatNode(context.Start.Line, new LitExprNode(context.Start.Line, true), body);
+        }
 
         public override ASTNode VisitCommCase(GoParser.CommCaseContext context) =>
-         throw new NotImplementedException("select statement (comm case) is unsupported");
+            new IdNode(context.Start.Line, this.CommCaseLabel(context));
 
-        public override ASTNode VisitCommClause(GoParser.CommClauseContext context) =>
-            throw new NotImplementedException("select statement (comm clause) is unsupported");
+        public override ASTNode VisitCommClause(GoParser.CommClauseContext context)
+        {
+            BlockStatNode statements = context.statementList() is null
+                ? new BlockStatNode(context.Start.Line)
+                : this.Visit(context.statementList()).As<BlockStatNode>();
+            return new LabeledStatNode(context.Start.Line, this.CommCaseLabel(context.commCase()), statements);
+        }
         
-        public override ASTNode VisitRecvStmt(GoParser.RecvStmtContext context) =>
-            throw new NotImplementedException("select statement (recv stmt) is unsupported");
+        public override ASTNode VisitRecvStmt(GoParser.RecvStmtContext context)
+        {
+            ExprNode receive = this.Visit(context.recvExpr).As<ExprNode>();
 
-        public override ASTNode VisitSendStmt(GoParser.SendStmtContext context) =>
-            throw new NotImplementedException("send statement is unsupported");
+            if (context.expressionList() is not null) {
+                ExprListNode lhs = this.Visit(context.expressionList()).As<ExprListNode>();
+                return new ExprStatNode(context.Start.Line, new AssignExprNode(context.Start.Line, lhs, receive));
+            }
+
+            if (context.identifierList() is not null) {
+                IdListNode ids = this.Visit(context.identifierList()).As<IdListNode>();
+                if (context.DECLARE_ASSIGN() is not null) {
+                    var decls = new DeclListNode(context.Start.Line, ids.Identifiers.Select(id => new VarDeclNode(id.Line, id, receive)));
+                    return new DeclStatNode(context.Start.Line, new DeclSpecsNode(context.Start.Line), decls);
+                }
+
+                return new ExprStatNode(context.Start.Line, new AssignExprNode(context.Start.Line, ids, receive));
+            }
+
+            return new ExprStatNode(context.Start.Line, receive);
+        }
+
+        public override ASTNode VisitSendStmt(GoParser.SendStmtContext context)
+        {
+            ExprNode channel = this.Visit(context.channel).As<ExprNode>();
+            ExprNode value = this.Visit(context.expression().Last()).As<ExprNode>();
+            return this.MarkerStatement(context.Start.Line, "__linvast_send", channel, value);
+        }
 
         public override ASTNode VisitSwitchStmt(GoParser.SwitchStmtContext context) =>
-            throw new NotImplementedException("switch statement is unsupported");
+            this.Visit(context.children.Single());
 
-        public override ASTNode VisitTypeSwitchStmt(GoParser.TypeSwitchStmtContext context) =>
-            throw new NotImplementedException("type switch statement is unsupported");
+        public override ASTNode VisitTypeSwitchStmt(GoParser.TypeSwitchStmtContext context)
+        {
+            ExprNode condition = this.Visit(context.typeSwitchGuard()).As<ExprNode>();
+            var body = new BlockStatNode(context.Start.Line, context.typeCaseClause().Select(this.Visit));
+            var switchNode = new SwitchStatNode(context.Start.Line, condition, body);
 
-        public override ASTNode VisitExprSwitchStmt(GoParser.ExprSwitchStmtContext context) =>
-            throw new NotImplementedException("expr switch statement is unsupported");
+            if (context.simpleStmt() is null)
+                return switchNode;
+
+            return new BlockStatNode(context.Start.Line, this.Visit(context.simpleStmt()), switchNode);
+        }
+
+        public override ASTNode VisitExprSwitchStmt(GoParser.ExprSwitchStmtContext context)
+        {
+            ExprNode condition = context.expression() is null
+                ? new LitExprNode(context.Start.Line, true)
+                : this.Visit(context.expression()).As<ExprNode>();
+            var body = new BlockStatNode(context.Start.Line, context.exprCaseClause().Select(this.Visit));
+            var switchNode = new SwitchStatNode(context.Start.Line, condition, body);
+
+            if (context.simpleStmt() is null)
+                return switchNode;
+
+            return new BlockStatNode(context.Start.Line, this.Visit(context.simpleStmt()), switchNode);
+        }
         
-        public override ASTNode VisitExprCaseClause(GoParser.ExprCaseClauseContext context) =>
-            throw new NotImplementedException("switch statement is unsupported");
+        public override ASTNode VisitExprCaseClause(GoParser.ExprCaseClauseContext context)
+        {
+            BlockStatNode statements = context.statementList() is null
+                ? new BlockStatNode(context.Start.Line)
+                : this.Visit(context.statementList()).As<BlockStatNode>();
+            return new LabeledStatNode(context.Start.Line, this.ExprSwitchCaseLabel(context.exprSwitchCase()), statements);
+        }
 
         public override ASTNode VisitExprSwitchCase(GoParser.ExprSwitchCaseContext context) =>
-            throw new NotImplementedException("expr switch statement (case) is unsupported");
+            new IdNode(context.Start.Line, this.ExprSwitchCaseLabel(context));
 
         public override ASTNode VisitTypeSwitchCase(GoParser.TypeSwitchCaseContext context) =>
-            throw new NotImplementedException("type switch statement (case) is unsupported");
+            new IdNode(context.Start.Line, this.TypeSwitchCaseLabel(context));
         
-        public override ASTNode VisitTypeSwitchGuard(GoParser.TypeSwitchGuardContext context) =>
-            throw new NotImplementedException("type switch statement (guard) is unsupported");
+        public override ASTNode VisitTypeSwitchGuard(GoParser.TypeSwitchGuardContext context)
+        {
+            ExprNode switched = this.Visit(context.primaryExpr()).As<ExprNode>();
+            var args = context.IDENTIFIER() is null
+                ? new ExprListNode(context.Start.Line, switched)
+                : new ExprListNode(context.Start.Line, new IdNode(context.Start.Line, context.IDENTIFIER().GetText()), switched);
+            return new FuncCallExprNode(context.Start.Line, new IdNode(context.Start.Line, "__linvast_type_switch"), args);
+        }
 
-        public override ASTNode VisitTypeCaseClause(GoParser.TypeCaseClauseContext context) =>
-            throw new NotImplementedException("type switch statement (case clause) is unsupported");
+        public override ASTNode VisitTypeCaseClause(GoParser.TypeCaseClauseContext context)
+        {
+            BlockStatNode statements = context.statementList() is null
+                ? new BlockStatNode(context.Start.Line)
+                : this.Visit(context.statementList()).As<BlockStatNode>();
+            return new LabeledStatNode(context.Start.Line, this.TypeSwitchCaseLabel(context.typeSwitchCase()), statements);
+        }
 
         public override ASTNode VisitFallthroughStmt(GoParser.FallthroughStmtContext context) =>
-            throw new NotImplementedException("switch statement (fallthrough) is unsupported");
+            new ExprStatNode(context.Start.Line, new FuncCallExprNode(context.Start.Line, new IdNode(context.Start.Line, "__linvast_fallthrough")));
+
+        private string ExprSwitchCaseLabel(GoParser.ExprSwitchCaseContext context)
+            => context.DEFAULT() is not null
+                ? "default"
+                : $"case {this.Visit(context.expressionList()).As<ExprListNode>().GetText()}";
+
+        private string TypeSwitchCaseLabel(GoParser.TypeSwitchCaseContext context)
+            => context.DEFAULT() is not null
+                ? "default"
+                : $"case {this.Visit(context.typeList()).As<TypeNameListNode>().GetText()}";
+
+        private string CommCaseLabel(GoParser.CommCaseContext context)
+        {
+            if (context.DEFAULT() is not null)
+                return "default";
+            if (context.sendStmt() is not null)
+                return $"case {this.VisitSendStmt(context.sendStmt()).As<ExprStatNode>().Expression.GetText()}";
+            if (context.recvStmt() is not null)
+                return $"case {this.VisitRecvStmt(context.recvStmt()).As<StatNode>().GetText().TrimEnd(';')}";
+
+            return "case";
+        }
+
+        private ExprNode? SimpleStatementExpression(GoParser.SimpleStmtContext? context)
+        {
+            if (context is null)
+                return null;
+
+            return this.StatementExpression(this.Visit(context));
+        }
+
+        private ExprNode? StatementExpression(ASTNode? node)
+        {
+            if (node is null || node is EmptyStatNode)
+                return null;
+            if (node is ExprNode expression)
+                return expression;
+            if (node is ExprStatNode exprStat)
+                return exprStat.Expression;
+            if (node is BlockStatNode block) {
+                ExprNode[] expressions = block.Children
+                    .Select(this.StatementExpression)
+                    .Where(e => e is not null)
+                    .Cast<ExprNode>()
+                    .ToArray();
+                return expressions.Length switch
+                {
+                    0 => null,
+                    1 => expressions[0],
+                    _ => new ExprListNode(block.Line, expressions),
+                };
+            }
+            if (node is StatNode stat)
+                return this.MarkerExpression(stat.Line, "__linvast_stmt", new IdNode(stat.Line, stat.GetText()));
+
+            return this.MarkerExpression(node.Line, "__linvast_node", new IdNode(node.Line, node.GetText()));
+        }
+
+        private ExprStatNode MarkerStatement(int line, string marker, params ExprNode[] args) =>
+            new ExprStatNode(line, this.MarkerExpression(line, marker, args));
+
+        private FuncCallExprNode MarkerExpression(int line, string marker, params ExprNode[] args) =>
+            args.Any()
+                ? new FuncCallExprNode(line, new IdNode(line, marker), new ExprListNode(line, args))
+                : new FuncCallExprNode(line, new IdNode(line, marker));
     }
 }

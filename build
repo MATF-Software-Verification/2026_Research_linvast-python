@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+source "${SCRIPT_DIR}/scripts/common"
+
+usage() {
+    cat <<'USAGE'
+Usage: ./build [options]
+
+Options:
+  -c, --configuration <Debug|Release>  Build configuration. Default: Debug.
+      --version-suffix <suffix>        Optional prerelease version suffix.
+      --build-number <number>          Optional build number, padded to five digits.
+      --no-restore                     Skip dotnet restore.
+  -h, --help                           Show this help text.
+USAGE
+}
+
+configuration="Debug"
+version_suffix=""
+build_number=""
+no_restore=0
+
+while (($#)); do
+    case "$1" in
+        -c|--configuration)
+            shift
+            linvast_require_value "--configuration" "${1-}"
+            configuration="$1"
+            ;;
+        --version-suffix)
+            shift
+            linvast_require_value "--version-suffix" "${1-}"
+            version_suffix="$1"
+            ;;
+        --build-number)
+            shift
+            linvast_require_value "--build-number" "${1-}"
+            build_number="$1"
+            ;;
+        --no-restore)
+            no_restore=1
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            linvast_die "unknown option '$1'"
+            ;;
+    esac
+    shift
+done
+
+linvast_validate_configuration "$configuration"
+
+build_number_string=""
+prerelease_version=""
+if [[ -n "$build_number" ]]; then
+    if [[ -z "$version_suffix" ]]; then
+        linvast_die "--build-number requires --version-suffix"
+    fi
+
+    if build_number_string="$(linvast_format_build_number "$build_number")"; then
+        :
+    else
+        build_number_string=""
+    fi
+fi
+
+if [[ -n "$version_suffix" ]]; then
+    prerelease_version="$(linvast_prerelease_version "$version_suffix" "$build_number_string")"
+fi
+
+cd "$LINVAST_REPO_ROOT"
+linvast_prepare_nuget_config
+trap linvast_restore_nuget_config EXIT
+
+if [[ "$no_restore" -eq 0 ]]; then
+    dotnet restore "$LINVAST_SOLUTION" -v minimal -m:1
+fi
+
+build_args=(dotnet build "$LINVAST_SOLUTION" -v minimal -c "$configuration" --no-restore -m:1)
+
+if [[ -n "$version_suffix" ]]; then
+    build_args+=(--version-suffix "$version_suffix" -p:Version="$prerelease_version" -p:PackageVersion="$prerelease_version")
+fi
+
+if [[ -n "$build_number_string" ]]; then
+    build_args+=(-p:BuildNumber="$build_number_string")
+fi
+
+"${build_args[@]}"

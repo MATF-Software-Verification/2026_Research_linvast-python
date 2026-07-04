@@ -48,6 +48,9 @@ namespace LINVAST.Imperative.Builders.Lua
 
         public override ASTNode VisitChunk([NotNull] ChunkContext ctx)
         {
+            if (!ctx.block().stat().Any() && ctx.block().retstat() is null)
+                throw new SyntaxErrorException("Missing statements in block");
+
             BlockStatNode block = this.Visit(ctx.block()).As<BlockStatNode>();
             return new SourceNode(this.AddDeclarations(block.Children));
         }
@@ -55,8 +58,6 @@ namespace LINVAST.Imperative.Builders.Lua
         public override ASTNode VisitBlock([NotNull] BlockContext ctx)
         {
             IEnumerable<ASTNode> statements = ctx.stat().Select(c => this.Visit(c));
-            if (!statements.Any() && ctx.retstat() is null)
-                throw new SyntaxErrorException("Missing statements in block");
             if (ctx.retstat() is not null)
                 statements = statements.Concat(new[] { this.Visit(ctx.retstat()) });
 
@@ -81,7 +82,11 @@ namespace LINVAST.Imperative.Builders.Lua
                             declaredVars.Add(v.Identifier);
                         }
                     } else if (assignmentExpr.LeftOperand is ArrAccessExprNode arr) {
-                        IdNode arrayExpr = arr.Array as IdNode ?? throw new NotSupportedException("Complex array access expressions");
+                        if (arr.Array is not IdNode arrayExpr) {
+                            nodes.Add(stat);
+                            continue;
+                        }
+
                         if (!IsDeclared(arrayExpr)) {
                             var declList = new DeclListNode(arr.Line, new ArrDeclNode(arr.Line, arrayExpr));
                             var declSpecs = new DeclSpecsNode(arr.Line);
@@ -148,9 +153,9 @@ namespace LINVAST.Imperative.Builders.Lua
                         throw new SyntaxErrorException($"Function {fdef.Identifier} lacking defition in line {fdef.Line}");
                     var alteredDefinition = new BlockStatNode(fdef.Definition.Line, this.AddDeclarations(fdef.Definition.Children, declaredVars));
                     FuncDeclNode alteredDeclarator = fdef.ParametersNode is not null
-                        ? new FuncDeclNode(fdef.Declarator.Line, fdef.Declarator.IdentifierNode, fdef.ParametersNode, fdef.Definition)
-                        : new FuncDeclNode(fdef.Declarator.Line, fdef.Declarator.IdentifierNode, fdef.Definition);
-                    nodes.Add(new FuncNode(fdef.Line, fdef.Specifiers, fdef.Declarator));
+                        ? new FuncDeclNode(fdef.Declarator.Line, fdef.Declarator.IdentifierNode, fdef.ParametersNode, alteredDefinition)
+                        : new FuncDeclNode(fdef.Declarator.Line, fdef.Declarator.IdentifierNode, alteredDefinition);
+                    nodes.Add(new FuncNode(fdef.Line, fdef.Specifiers, alteredDeclarator));
                     foreach (string p in @params)
                         declaredVars.Remove(p);
                 } else if (stat is IfStatNode @if) {
@@ -174,34 +179,34 @@ namespace LINVAST.Imperative.Builders.Lua
             bool IsDeclared(IdNode node)
                 => declaredVars.Contains(node.Identifier);
             //=> nodes.Any(n => n is DeclarationStatementNode decl && decl.DeclaratorList.Declarations.Any(d => d.IdentifierNode.Equals(node)));
+        }
 
-            static DeclNode CreateDeclarator(IdNode identifier, ExprNode initializer, bool ignoreInitializer = false)
-            {
-                if (ignoreInitializer) {
-                    return initializer switch
-                    {
-                        DictInitNode dict => new DictDeclNode(identifier.Line, identifier),
-                        ExprListNode expList => new ArrDeclNode(
-                            identifier.Line,
-                            identifier,
-                            LitExprNode.FromString(expList.Line, expList.Expressions.Count().ToString())
-                        ),
-                        ExprNode varInit => new VarDeclNode(identifier.Line, identifier),
-                        _ => throw new SyntaxErrorException("Unexpected variable initializer"),
-                    };
-                } else {
-                    return initializer switch
-                    {
-                        DictInitNode dict => new DictDeclNode(identifier.Line, identifier, dict),
-                        ExprListNode expList => new ArrDeclNode(
-                            identifier.Line,
-                            identifier,
-                            new ArrInitExprNode(expList.Line, expList.Expressions)
-                        ),
-                        ExprNode varInit => new VarDeclNode(identifier.Line, identifier, varInit),
-                        _ => throw new SyntaxErrorException("Unexpected variable initializer"),
-                    };
-                }
+        private static DeclNode CreateDeclarator(IdNode identifier, ExprNode initializer, bool ignoreInitializer = false)
+        {
+            if (ignoreInitializer) {
+                return initializer switch
+                {
+                    DictInitNode => new DictDeclNode(identifier.Line, identifier),
+                    ExprListNode expList => new ArrDeclNode(
+                        identifier.Line,
+                        identifier,
+                        LitExprNode.FromString(expList.Line, expList.Expressions.Count().ToString())
+                    ),
+                    ExprNode => new VarDeclNode(identifier.Line, identifier),
+                    _ => throw new SyntaxErrorException("Unexpected variable initializer"),
+                };
+            } else {
+                return initializer switch
+                {
+                    DictInitNode dict => new DictDeclNode(identifier.Line, identifier, dict),
+                    ExprListNode expList => new ArrDeclNode(
+                        identifier.Line,
+                        identifier,
+                        new ArrInitExprNode(expList.Line, expList.Expressions)
+                    ),
+                    ExprNode varInit => new VarDeclNode(identifier.Line, identifier, varInit),
+                    _ => throw new SyntaxErrorException("Unexpected variable initializer"),
+                };
             }
         }
     }

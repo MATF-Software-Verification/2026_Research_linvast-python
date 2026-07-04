@@ -25,14 +25,14 @@ namespace LINVAST.Imperative.Builders.Lua
                     case "false":
                         return LitExprNode.FromString(ctx.Start.Line, firstToken);
                     case "...":
-                        throw new NotImplementedException("...");
+                        return new IdNode(ctx.Start.Line, "...");
                 }
 
                 if (ctx.number() is not null)
                     return LitExprNode.FromString(ctx.Start.Line, ctx.number().GetText());
 
                 if (ctx.@string() is not null) {
-                    string str = ctx.@string().GetText()[1..^1];
+                    string str = ParseString(ctx.@string().GetText());
                     return new LitExprNode(ctx.Start.Line, str);
                 }
 
@@ -123,31 +123,30 @@ namespace LINVAST.Imperative.Builders.Lua
             if (!ctx.nameAndArgs()?.Any() ?? true)
                 return varOrExp;
 
-            if (ctx.nameAndArgs().Length > 1)
-                throw new NotSupportedException("Multiple nameAndArgs");
-
-            if (varOrExp is IdNode fname) {
-                ExprListNode args = this.Visit(ctx.nameAndArgs().Single()).As<ExprListNode>();
-                return new FuncCallExprNode(ctx.Start.Line, fname, args);
-            } else {
-                throw new NotSupportedException("Callable expressions");
-            }
+            ExprNode expr = varOrExp.As<ExprNode>();
+            foreach (NameAndArgsContext nameAndArgsCtx in ctx.nameAndArgs())
+                expr = this.CreateFunctionCall(ctx.Start.Line, expr, nameAndArgsCtx);
+            return expr;
         }
 
         public override ASTNode VisitVarOrExp([NotNull] VarOrExpContext ctx)
             => ctx.exp() is not null ? this.Visit(ctx.exp()) : this.Visit(ctx.var());
 
         public override ASTNode VisitNameAndArgs([NotNull] NameAndArgsContext ctx)
-        {
-            if (ctx.NAME() is not null)
-                throw new NotImplementedException("NAME");
-            return this.Visit(ctx.args());
-        }
+            => this.Visit(ctx.args());
 
         public override ASTNode VisitArgs([NotNull] ArgsContext ctx)
         {
-            if (ctx.tableconstructor() is not null || ctx.@string() is not null)
-                throw new NotImplementedException("tableconstructor or string");
+            if (ctx.tableconstructor() is not null) {
+                ExprNode table = this.Visit(ctx.tableconstructor()).As<ExprNode>();
+                return new ExprListNode(ctx.Start.Line, table);
+            }
+
+            if (ctx.@string() is not null) {
+                string str = ParseString(ctx.@string().GetText());
+                return new ExprListNode(ctx.Start.Line, new LitExprNode(ctx.Start.Line, str));
+            }
+
             return ctx.explist() is not null
                 ? this.Visit(ctx.explist())
                 : new ExprListNode(ctx.Start.Line);
@@ -169,10 +168,10 @@ namespace LINVAST.Imperative.Builders.Lua
 
         public override ASTNode VisitParlist([NotNull] ParlistContext ctx)
         {
-            // TODO variadic?
+            bool isVariadic = ctx.GetText().Contains("...", StringComparison.Ordinal);
 
             if (ctx.namelist() is null)
-                return new FuncParamsNode(ctx.Start.Line);
+                return new FuncParamsNode(ctx.Start.Line) { IsVariadic = isVariadic };
 
             IdListNode nameList = this.Visit(ctx.namelist()).As<IdListNode>();
             IEnumerable<FuncParamNode> @params = nameList.Identifiers.Select(i => {
@@ -180,7 +179,7 @@ namespace LINVAST.Imperative.Builders.Lua
                 var decl = new VarDeclNode(i.Line, i);
                 return new FuncParamNode(ctx.Start.Line, declSpecs, decl);
             });
-            return new FuncParamsNode(ctx.Start.Line, @params);
+            return new FuncParamsNode(ctx.Start.Line, @params) { IsVariadic = isVariadic };
         }
 
         public override ASTNode VisitTableconstructor([NotNull] TableconstructorContext ctx)
@@ -192,8 +191,20 @@ namespace LINVAST.Imperative.Builders.Lua
                 return new ExprListNode(ctx.Start.Line, ctx.field().Select(c => this.Visit(c).As<ExprNode>()));
             else if (IsAssignmentList(ctx))
                 return new DictInitNode(ctx.Start.Line, ctx.field().Select(c => this.Visit(c).As<DictEntryNode>()));
-            else
-                throw new NotSupportedException("Mixed assignment and expressions in table constructor");
+
+            var entries = new List<DictEntryNode>();
+            int arrayIndex = 1;
+            foreach (FieldContext field in ctx.field()) {
+                if (field.children.Count == 1) {
+                    ExprNode value = this.Visit(field.exp().Single()).As<ExprNode>();
+                    entries.Add(new DictEntryNode(field.Start.Line, new IdNode(field.Start.Line, arrayIndex.ToString()), value));
+                    arrayIndex++;
+                } else {
+                    entries.Add(this.Visit(field).As<DictEntryNode>());
+                }
+            }
+
+            return new DictInitNode(ctx.Start.Line, entries);
 
 
             static bool IsAssignmentList(FieldlistContext ctx)
@@ -208,12 +219,42 @@ namespace LINVAST.Imperative.Builders.Lua
             if (ctx.children.Count == 1)
                 return this.Visit(ctx.exp().Single());
 
-            if (ctx.exp().Length > 1)
-                throw new NotImplementedException("Table assignment expression field");
+            if (ctx.exp().Length > 1) {
+                ExprNode keyExpr = this.Visit(ctx.exp(0)).As<ExprNode>();
+                string computedKey = keyExpr is LitExprNode { Value: string stringKey } ? stringKey : keyExpr.GetText();
+                ExprNode computedValue = this.Visit(ctx.exp(1)).As<ExprNode>();
+                return new DictEntryNode(ctx.Start.Line, new IdNode(ctx.Start.Line, computedKey), computedValue);
+            }
 
-            var key = new IdNode(ctx.Start.Line, ctx.NAME().GetText());
-            ExprNode value = this.Visit(ctx.exp().Single()).As<ExprNode>();
-            return new DictEntryNode(ctx.Start.Line, key, value);
+            var namedKey = new IdNode(ctx.Start.Line, ctx.NAME().GetText());
+            ExprNode namedValue = this.Visit(ctx.exp().Single()).As<ExprNode>();
+            return new DictEntryNode(ctx.Start.Line, namedKey, namedValue);
+        }
+
+        private FuncCallExprNode CreateFunctionCall(int line, ExprNode target, NameAndArgsContext ctx)
+        {
+            string identifier = target.GetText();
+            if (ctx.NAME() is not null)
+                identifier = $"{identifier}:{ctx.NAME().GetText()}";
+
+            var fname = new IdNode(line, identifier);
+            ExprListNode args = this.Visit(ctx.args()).As<ExprListNode>();
+            return args.Expressions.Any()
+                ? new FuncCallExprNode(line, fname, args)
+                : new FuncCallExprNode(line, fname);
+        }
+
+        private static string ParseString(string text)
+        {
+            if (!text.StartsWith("[", StringComparison.Ordinal))
+                return text[1..^1];
+
+            int contentStart = text.IndexOf('[', 1) + 1;
+            int contentEnd = text.Length - contentStart;
+            if (contentStart <= 0 || contentEnd < contentStart)
+                return text[1..^1];
+
+            return text[contentStart..contentEnd];
         }
     }
 }

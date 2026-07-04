@@ -6,6 +6,7 @@ using Antlr4.Runtime.Misc;
 using LINVAST.Builders;
 using LINVAST.Exceptions;
 using LINVAST.Imperative.Nodes;
+using LINVAST.Imperative.Nodes.Common;
 using LINVAST.Nodes;
 using static LINVAST.Imperative.Builders.Java.JavaParser;
 
@@ -70,9 +71,6 @@ namespace LINVAST.Imperative.Builders.Java
         {
             var identifier = new IdNode(ctx.Start.Line, ctx.IDENTIFIER().GetText());
 
-            if (ctx.typeList() is not null)
-                throw new NotImplementedException("enum implements interface");
-
             var constantsNode = new DeclListNode(ctx.Start.Line);
             if (ctx.enumConstants() is not null) {
                 IEnumerable<DeclNode> constants = ctx.enumConstants().enumConstant().Select(c => this.Visit(c).As<DeclNode>());
@@ -98,16 +96,22 @@ namespace LINVAST.Imperative.Builders.Java
                 annotations = ctx.annotation().Select(a => this.Visit(a).As<TagNode>());
             }
                 
-            if (ctx.arguments() is not null)
-                throw new NotImplementedException("enum args");
+            ExprNode? initializer = ctx.arguments() is not null
+                ? new FuncCallExprNode(line, new IdNode(line, ctx.IDENTIFIER().GetText()), this.Visit(ctx.arguments()).As<ExprListNode>())
+                : null;
             
-            return annotations is null
-                ? new VarDeclNode(line, new IdNode(line, ctx.IDENTIFIER().GetText())) 
-                : new VarDeclNode(line, annotations, new IdNode(line, ctx.IDENTIFIER().GetText()));
+            if (annotations is null)
+                return initializer is null
+                    ? new VarDeclNode(line, new IdNode(line, ctx.IDENTIFIER().GetText()))
+                    : new VarDeclNode(line, new IdNode(line, ctx.IDENTIFIER().GetText()), initializer);
+
+            return initializer is null
+                ? new VarDeclNode(line, annotations, new IdNode(line, ctx.IDENTIFIER().GetText()))
+                : new VarDeclNode(line, annotations, new IdNode(line, ctx.IDENTIFIER().GetText()), initializer);
         }
 
         public override ASTNode VisitEnumBodyDeclarations([NotNull] EnumBodyDeclarationsContext ctx)
-            => throw new NotImplementedException("Enum class body");
+            => new BlockStatNode(ctx.Start.Line, ctx.classBodyDeclaration().Select(this.VisitClassBodyDeclaration));
 
         public override ASTNode VisitInterfaceDeclaration([NotNull] InterfaceDeclarationContext ctx)
         {
@@ -133,16 +137,20 @@ namespace LINVAST.Imperative.Builders.Java
 
         public override ASTNode VisitClassBodyDeclaration([NotNull] ClassBodyDeclarationContext ctx)
         {
-            if (ctx.SEMI() is not null)
+            if (ctx.SEMI() is not null && ctx.ChildCount == 1)
                 return new EmptyStatNode(ctx.Start.Line);
 
             if (ctx.STATIC() is not null || ctx.block() is not null)
-                throw new NotImplementedException("static- and non-static- blocks in a class");
+                return this.Visit(ctx.block()).As<BlockStatNode>();
 
             // we use private method ProcessModifier instead of overriding VisitModifier
             string modifiers = "";
+            IEnumerable<TagNode> tags = Enumerable.Empty<TagNode>();
             if (ctx.modifier() is { } modifierCtxList && modifierCtxList.Any()) {
-                modifiers = string.Join(" ", modifierCtxList.Select(modCtx => this.ProcessModifier(modCtx)));
+                tags = modifierCtxList.Select(this.ProcessModifierTag).Where(tag => tag is not null).Cast<TagNode>();
+                modifiers = string.Join(" ", modifierCtxList
+                    .Select(modCtx => this.ProcessModifier(modCtx))
+                    .Where(mod => !string.IsNullOrWhiteSpace(mod)));
             }
 
             MemberDeclarationContext memberDeclCtx = ctx.memberDeclaration();
@@ -152,7 +160,9 @@ namespace LINVAST.Imperative.Builders.Java
                 ? this.Visit(memberDeclCtx).As<DeclListNode>()
                 : new DeclListNode(memberDeclCtx.Start.Line, this.Visit(memberDeclCtx).As<DeclNode>());
             
-            return new DeclStatNode(ctx.Start.Line, declSpecs, declList);
+            return tags.Any()
+                ? new DeclStatNode(ctx.Start.Line, tags, declSpecs, declList)
+                : new DeclStatNode(ctx.Start.Line, declSpecs, declList);
 
             TypeNameNode TypeName([NotNull] MemberDeclarationContext ctx)
             {
@@ -165,14 +175,16 @@ namespace LINVAST.Imperative.Builders.Java
                 if (ctx.enumDeclaration() is { } enumDeclCtx)
                     return new TypeNameNode(enumDeclCtx.Start.Line, enumDeclCtx.IDENTIFIER().GetText());
 
-                if (ctx.annotationTypeDeclaration() is not null)
-                    throw new NotImplementedException("annotation type declaration");
+                if (ctx.annotationTypeDeclaration() is { } annotationDeclCtx)
+                    return new TypeNameNode(annotationDeclCtx.Start.Line, annotationDeclCtx.IDENTIFIER().GetText());
 
                 if (ctx.methodDeclaration() is { } methodDeclCtx)
-                    return this.Visit(methodDeclCtx.typeTypeOrVoid()).As<TypeNameNode>();
+                    return AppendArrayBrackets(this.Visit(methodDeclCtx.typeTypeOrVoid()).As<TypeNameNode>(), methodDeclCtx.LBRACK().Length);
 
                 if (ctx.genericMethodDeclaration() is { } genMethDeclCtx)
-                    return this.Visit(genMethDeclCtx.methodDeclaration().typeTypeOrVoid()).As<TypeNameNode>();
+                    return AppendArrayBrackets(
+                        this.Visit(genMethDeclCtx.methodDeclaration().typeTypeOrVoid()).As<TypeNameNode>(),
+                        genMethDeclCtx.methodDeclaration().LBRACK().Length);
 
                 if (ctx.fieldDeclaration() is { } fieldDeclCtx)
                     return this.Visit(fieldDeclCtx.typeType()).As<TypeNameNode>();
@@ -205,13 +217,6 @@ namespace LINVAST.Imperative.Builders.Java
 
             FuncParamsNode @params = this.Visit(ctx.formalParameters()).As<FuncParamsNode>();
 
-            // brackets applies to the return type, historical reasons
-            if (ctx.LBRACK().Length > 0)
-                throw new NotImplementedException("brackets after method definition");
-
-            if (ctx.THROWS() is not null)
-                throw new NotImplementedException("exceptions");
-
             BlockStatNode body = this.Visit(ctx.methodBody()).As<BlockStatNode>();
 
             return new FuncDeclNode(ctx.Start.Line, identifier, @params, body);
@@ -240,9 +245,6 @@ namespace LINVAST.Imperative.Builders.Java
             var identifier = new IdNode(ctx.Start.Line, ctx.IDENTIFIER().GetText());
             FuncParamsNode @params = this.Visit(ctx.formalParameters()).As<FuncParamsNode>();
 
-            if (ctx.THROWS() is not null)
-                throw new NotImplementedException("throws");
-
             var body = new BlockStatNode(ctx.Start.Line, ctx.constructorBody.blockStatement().Select(this.Visit));
             return new FuncDeclNode(ctx.Start.Line, identifier, @params, body);
         }
@@ -256,14 +258,18 @@ namespace LINVAST.Imperative.Builders.Java
 
         public override ASTNode VisitInterfaceBodyDeclaration([NotNull] InterfaceBodyDeclarationContext ctx)
         {
-            if (ctx.SEMI() is not null)
+            if (ctx.SEMI() is not null && ctx.ChildCount == 1)
                 return new EmptyStatNode(ctx.Start.Line);
 
             var modifiers = new StringBuilder("");
             int? declSpecsStartLine = null;
+            var tags = new List<TagNode>();
             if (ctx.modifier() is { } modifierCtxList && modifierCtxList.Any()) {
+                tags.AddRange(modifierCtxList.Select(this.ProcessModifierTag).Where(tag => tag is not null).Cast<TagNode>());
                 modifiers.Append(string.Join(" ",
-                    modifierCtxList.Select(modCtx => this.ProcessModifier(modCtx))));
+                    modifierCtxList
+                        .Select(modCtx => this.ProcessModifier(modCtx))
+                        .Where(mod => !string.IsNullOrWhiteSpace(mod))));
                 declSpecsStartLine = modifierCtxList.First().Start.Line;
             }
 
@@ -271,10 +277,15 @@ namespace LINVAST.Imperative.Builders.Java
             if (ctx.interfaceMemberDeclaration().interfaceMethodDeclaration() is { } iMethodDeclCtx &&
                 iMethodDeclCtx.interfaceMethodModifier() is { } iMethodModCtxList &&
                 iMethodModCtxList.Any()) {
-                if (!modifiers.Equals(""))
+                tags.AddRange(iMethodModCtxList
+                    .Where(iMCtx => iMCtx.annotation() is not null)
+                    .Select(iMCtx => this.Visit(iMCtx.annotation()).As<TagNode>()));
+                if (modifiers.Length > 0)
                     modifiers.Append(" ");
                 modifiers.Append(string.Join(" ",
-                    iMethodModCtxList.Select(iMCtx => this.ProcessInterfaceMethodModifier(iMCtx))));
+                    iMethodModCtxList
+                        .Select(iMCtx => this.ProcessInterfaceMethodModifier(iMCtx))
+                        .Where(mod => !string.IsNullOrWhiteSpace(mod))));
                 declSpecsStartLine ??= iMethodModCtxList.First().Start.Line;
             }
 
@@ -286,7 +297,9 @@ namespace LINVAST.Imperative.Builders.Java
                 ? this.Visit(constDeclCtx).As<DeclListNode>()
                 : new DeclListNode(ctx.interfaceMemberDeclaration().Start.Line,
                     this.Visit(ctx.interfaceMemberDeclaration()).As<DeclNode>());
-            return new DeclStatNode(ctx.Start.Line, declSpecs, declList);
+            return tags.Any()
+                ? new DeclStatNode(ctx.Start.Line, tags, declSpecs, declList)
+                : new DeclStatNode(ctx.Start.Line, declSpecs, declList);
 
 
             TypeNameNode TypeName([NotNull] InterfaceMemberDeclarationContext ctx)
@@ -295,16 +308,18 @@ namespace LINVAST.Imperative.Builders.Java
                     return this.Visit(constDeclCtx.typeType()).As<TypeNameNode>();
 
                 if (ctx.interfaceMethodDeclaration() is { } iMethodDeclCtx)
-                    return this.Visit(iMethodDeclCtx.typeTypeOrVoid()).As<TypeNameNode>();
+                    return AppendArrayBrackets(this.Visit(iMethodDeclCtx.typeTypeOrVoid()).As<TypeNameNode>(), iMethodDeclCtx.LBRACK().Length);
 
                 if (ctx.genericInterfaceMethodDeclaration() is { } genIntMethdDeclCtx)
-                    return this.Visit(genIntMethdDeclCtx.interfaceMethodDeclaration().typeTypeOrVoid()).As<TypeNameNode>();
+                    return AppendArrayBrackets(
+                        this.Visit(genIntMethdDeclCtx.interfaceMethodDeclaration().typeTypeOrVoid()).As<TypeNameNode>(),
+                        genIntMethdDeclCtx.interfaceMethodDeclaration().LBRACK().Length);
 
                 if (ctx.interfaceDeclaration() is { } interfaceDeclCtx)
                     return new TypeNameNode(interfaceDeclCtx.Start.Line, interfaceDeclCtx.IDENTIFIER().GetText());
 
-                if (ctx.annotationTypeDeclaration() is not null)
-                    throw new NotImplementedException("annotation type declaration");
+                if (ctx.annotationTypeDeclaration() is { } annotationDeclCtx)
+                    return new TypeNameNode(annotationDeclCtx.Start.Line, annotationDeclCtx.IDENTIFIER().GetText());
 
                 if (ctx.classDeclaration() is { } clsDeclCtx)
                     return new TypeNameNode(clsDeclCtx.Start.Line, clsDeclCtx.IDENTIFIER().GetText());
@@ -329,10 +344,11 @@ namespace LINVAST.Imperative.Builders.Java
         {
             var identifier = new IdNode(ctx.Start.Line, ctx.IDENTIFIER().GetText());
 
-            if (ctx.LBRACK().Length > 0)
-                throw new NotImplementedException("arrays");
-
             ExprNode init = this.Visit(ctx.variableInitializer()).As<ExprNode>();
+            if (ctx.LBRACK().Length > 0 && init is ArrInitExprNode arrInit)
+                return new ArrDeclNode(ctx.Start.Line, identifier, arrInit);
+            if (ctx.LBRACK().Length > 0)
+                return new ArrDeclNode(ctx.Start.Line, identifier);
 
             return new VarDeclNode(ctx.Start.Line, identifier, init);
         }
@@ -341,21 +357,11 @@ namespace LINVAST.Imperative.Builders.Java
         {
             var identifier = new IdNode(ctx.Start.Line, ctx.IDENTIFIER().GetText());
 
-            if (ctx.annotation() is not null && ctx.annotation().Any())
-                throw new NotImplementedException("annotations");
-
             TypeNameListNode? templateArgs = null;
             if (ctx.typeParameters() is not null)
                 templateArgs = this.Visit(ctx.typeParameters()).As<TypeNameListNode>();
 
             FuncParamsNode @params = this.Visit(ctx.formalParameters()).As<FuncParamsNode>();
-
-            // brackets applies to the return type, historical reasons
-            if (ctx.LBRACK().Length > 0)
-                throw new NotImplementedException("brackets after method definition");
-
-            if (ctx.THROWS() is not null)
-                throw new NotImplementedException("exceptions");
 
             BlockStatNode body = this.Visit(ctx.methodBody()).As<BlockStatNode>();
 
@@ -388,22 +394,25 @@ namespace LINVAST.Imperative.Builders.Java
         {
             VariableDeclaratorIdContext varDeclIdCtx = ctx.variableDeclaratorId();
             IdNode identifier = this.Visit(varDeclIdCtx).As<IdNode>();
+            bool isArray = varDeclIdCtx.LBRACK().Length > 0;
 
             if (ctx.variableInitializer() is { } varInitCtx) {
                 ExprNode init = this.Visit(varInitCtx).As<ExprNode>();
+                if (isArray && init is ArrInitExprNode arrInit)
+                    return new ArrDeclNode(ctx.Start.Line, identifier, arrInit);
+                if (isArray)
+                    return new ArrDeclNode(ctx.Start.Line, identifier);
                 return new VarDeclNode(ctx.Start.Line, identifier, init);
             }
+
+            if (isArray)
+                return new ArrDeclNode(ctx.Start.Line, identifier);
 
             return new VarDeclNode(ctx.Start.Line, identifier);
         }
 
         public override ASTNode VisitVariableDeclaratorId([NotNull] VariableDeclaratorIdContext ctx)
-        {
-            if (ctx.LBRACK().Length > 0)
-                throw new NotImplementedException("arrays");
-
-            return new IdNode(ctx.Start.Line, ctx.IDENTIFIER().GetText());
-        }
+            => new IdNode(ctx.Start.Line, ctx.IDENTIFIER().GetText());
 
         #endregion
 
@@ -413,9 +422,15 @@ namespace LINVAST.Imperative.Builders.Java
         {
             string modifiers = "";
             int? declSpecsStartLine = null;
+            IEnumerable<TagNode> tags = Enumerable.Empty<TagNode>();
             if (ctx.variableModifier() is { } varModifierCtxList && varModifierCtxList.Any()) {
+                tags = varModifierCtxList
+                    .Where(modCtx => modCtx.annotation() is not null)
+                    .Select(modCtx => this.Visit(modCtx.annotation()).As<TagNode>());
                 modifiers = string.Join(" ",
-                    varModifierCtxList.Select(modCtx => this.ProcessVariableModifier(modCtx)));
+                    varModifierCtxList
+                        .Select(modCtx => this.ProcessVariableModifier(modCtx))
+                        .Where(mod => !string.IsNullOrWhiteSpace(mod)));
                 declSpecsStartLine = varModifierCtxList.First().Start.Line;
             }
 
@@ -424,7 +439,9 @@ namespace LINVAST.Imperative.Builders.Java
             var declSpecs = new DeclSpecsNode(declSpecsStartLine ?? ctx.Start.Line, modifiers, typeName);
             DeclListNode declList = this.Visit(ctx.variableDeclarators()).As<DeclListNode>();
 
-            return new DeclStatNode(ctx.Start.Line, declSpecs, declList);
+            return tags.Any()
+                ? new DeclStatNode(ctx.Start.Line, tags, declSpecs, declList)
+                : new DeclStatNode(ctx.Start.Line, declSpecs, declList);
         }
 
         public override ASTNode VisitLocalTypeDeclaration([NotNull] LocalTypeDeclarationContext ctx)
@@ -464,14 +481,60 @@ namespace LINVAST.Imperative.Builders.Java
         #region annotation declarations
 
         public override ASTNode VisitAnnotationTypeDeclaration([NotNull] AnnotationTypeDeclarationContext ctx)
-            => throw new NotImplementedException("Declaring an annotation type");
+        {
+            var identifier = new IdNode(ctx.Start.Line, ctx.IDENTIFIER().GetText());
+            BlockStatNode block = this.Visit(ctx.annotationTypeBody()).As<BlockStatNode>();
+            return new TypeDeclNode(
+                ctx.Start.Line,
+                identifier,
+                new TypeNameListNode(ctx.Start.Line),
+                new TypeNameListNode(ctx.Start.Line),
+                block.Children.OfType<DeclStatNode>());
+        }
+
+        public override ASTNode VisitAnnotationTypeBody([NotNull] AnnotationTypeBodyContext ctx)
+            => new BlockStatNode(ctx.Start.Line, ctx.annotationTypeElementDeclaration().Select(this.Visit));
 
         public override ASTNode VisitAnnotationTypeElementDeclaration([NotNull] AnnotationTypeElementDeclarationContext ctx)
-            => throw new NotImplementedException("Declaring an annotation type");
+        {
+            if (ctx.SEMI() is not null)
+                return new EmptyStatNode(ctx.Start.Line);
+
+            string modifiers = string.Join(" ", ctx.modifier().Select(this.ProcessModifier).Where(mod => !string.IsNullOrWhiteSpace(mod)));
+            return CreateAnnotationElementDeclaration(ctx.Start.Line, modifiers, ctx.annotationTypeElementRest());
+        }
+
+        private DeclStatNode CreateAnnotationElementDeclaration(int line, string modifiers, [NotNull] AnnotationTypeElementRestContext ctx)
+        {
+            if (ctx.typeType() is not null) {
+                TypeNameNode typeName = this.Visit(ctx.typeType()).As<TypeNameNode>();
+                DeclListNode declList = CreateAnnotationMethodOrConstantList(ctx.annotationMethodOrConstantRest());
+                return new DeclStatNode(line, new DeclSpecsNode(typeName.Line, modifiers, typeName), declList);
+            }
+
+            DeclNode decl = this.Visit(ctx.children.First()).As<DeclNode>();
+            return new DeclStatNode(line, new DeclSpecsNode(ctx.Start.Line, modifiers, decl.Identifier), new DeclListNode(ctx.Start.Line, decl));
+        }
+
+        private DeclListNode CreateAnnotationMethodOrConstantList([NotNull] AnnotationMethodOrConstantRestContext ctx)
+        {
+            if (ctx.annotationConstantRest() is not null)
+                return this.Visit(ctx.annotationConstantRest().variableDeclarators()).As<DeclListNode>();
+
+            AnnotationMethodRestContext method = ctx.annotationMethodRest();
+            var identifier = new IdNode(method.Start.Line, method.IDENTIFIER().GetText());
+            var decl = new FuncDeclNode(method.Start.Line, identifier, new FuncParamsNode(method.Start.Line), new BlockStatNode(method.Start.Line));
+            return new DeclListNode(method.Start.Line, decl);
+        }
 
         #endregion
 
         #region private methods instead of visiting Modifier Contexts
+
+        private static TypeNameNode AppendArrayBrackets(TypeNameNode type, int bracketCount)
+            => bracketCount == 0
+                ? type
+                : new TypeNameNode(type.Line, $"{type.TypeName}{string.Concat(Enumerable.Repeat("[]", bracketCount))}", type.TemplateArguments);
 
         private string ProcessModifier(ModifierContext modifierCtx)
         {
@@ -484,7 +547,7 @@ namespace LINVAST.Imperative.Builders.Java
         private string ProcessClassOrInterfaceModifier([NotNull] ClassOrInterfaceModifierContext classOrInterfaceModCtx)
         {
             if (classOrInterfaceModCtx.annotation() is not null)
-                throw new NotImplementedException("annotations");
+                return "";
 
             return classOrInterfaceModCtx.GetText();
         }
@@ -492,7 +555,7 @@ namespace LINVAST.Imperative.Builders.Java
         private string ProcessInterfaceMethodModifier([NotNull] InterfaceMethodModifierContext interfaceMethodModCtx)
         {
             if (interfaceMethodModCtx.annotation() is not null)
-                throw new NotImplementedException("annotations");
+                return "";
 
             return interfaceMethodModCtx.GetText();
         }
@@ -500,9 +563,17 @@ namespace LINVAST.Imperative.Builders.Java
         private string ProcessVariableModifier(VariableModifierContext variableModifierCtx)
         {
             if (variableModifierCtx.annotation() is not null)
-                throw new NotImplementedException("annotations");
+                return "";
 
             return variableModifierCtx.GetText();
+        }
+
+        private TagNode? ProcessModifierTag(ModifierContext modifierCtx)
+        {
+            if (modifierCtx.classOrInterfaceModifier()?.annotation() is { } annotationCtx)
+                return this.Visit(annotationCtx).As<TagNode>();
+
+            return null;
         }
 
         #endregion
@@ -513,6 +584,155 @@ namespace LINVAST.Imperative.Builders.Java
             => new IdNode(ctx.Start.Line,
                 string.Join('.', ctx.IDENTIFIER().Select(id => id.GetText())));
 
+        public override ASTNode VisitBlock([NotNull] BlockContext ctx)
+            => new BlockStatNode(ctx.Start.Line, ctx.blockStatement().Select(s => this.Visit(s)));
+
+        public override ASTNode VisitBlockStatement([NotNull] BlockStatementContext ctx)
+        {
+            if (ctx.localVariableDeclaration() is not null)
+                return this.Visit(ctx.localVariableDeclaration());
+
+            if (ctx.statement() is not null)
+                return this.Visit(ctx.statement());
+
+            return this.Visit(ctx.localTypeDeclaration());
+        }
+
+        public override ASTNode VisitStatement([NotNull] StatementContext ctx)
+        {
+            if (ctx.blockLabel is not null)
+                return this.Visit(ctx.blockLabel);
+
+            if (ctx.ASSERT() is not null)
+                return this.MarkerStatement(ctx.Start.Line, "__linvast_assert", ctx.expression().Select(e => this.Visit(e).As<ExprNode>()).ToArray());
+
+            if (ctx.RETURN() is not null) {
+                ExprNode? expr = ctx.expression().Length > 0 ? this.Visit(ctx.expression().Last()).As<ExprNode>() : null;
+                return new JumpStatNode(ctx.Start.Line, expr);
+            }
+
+            if (ctx.THROW() is not null)
+                return new ThrowStatNode(ctx.Start.Line, this.Visit(ctx.expression().Single()).As<ExprNode>());
+
+            if (ctx.BREAK() is not null)
+                return new JumpStatNode(ctx.Start.Line, JumpStatType.Break);
+
+            if (ctx.CONTINUE() is not null)
+                return new JumpStatNode(ctx.Start.Line, JumpStatType.Continue);
+
+            if (ctx.statementExpression is not null)
+                return new ExprStatNode(ctx.Start.Line, this.Visit(ctx.statementExpression).As<ExprNode>());
+
+            if (ctx.SEMI() is not null && ctx.ChildCount == 1)
+                return new EmptyStatNode(ctx.Start.Line);
+
+            if (ctx.IF() is not null) {
+                ExprNode condition = this.Visit(ctx.parExpression()).As<ExprNode>();
+                StatementContext[] statements = ctx.statement();
+                StatNode thenStatement = this.Visit(statements.First()).As<StatNode>();
+                StatNode? elseStatement = statements.Length > 1 ? this.Visit(statements.Last()).As<StatNode>() : null;
+                return elseStatement is null
+                    ? new IfStatNode(ctx.Start.Line, condition, thenStatement)
+                    : new IfStatNode(ctx.Start.Line, condition, thenStatement, elseStatement);
+            }
+
+            if (ctx.FOR() is not null) {
+                StatNode body = this.Visit(ctx.statement().Single()).As<StatNode>();
+                ForControlContext forControl = ctx.forControl();
+                if (forControl.enhancedForControl() is not null) {
+                    EnhancedForControlContext enhancedFor = forControl.enhancedForControl();
+                    DeclStatNode iteratorDeclaration = this.EnhancedForIteratorDeclaration(enhancedFor);
+                    ExprNode iterable = this.Visit(enhancedFor.expression()).As<ExprNode>();
+                    return new ForeachStatNode(ctx.Start.Line, iteratorDeclaration, iterable, body);
+                }
+
+                ExprNode? init = forControl.forInit() is not null
+                    ? this.ForInitExpression(forControl.forInit())
+                    : null;
+                ExprNode? condition = forControl.expression() is not null
+                    ? this.Visit(forControl.expression()).As<ExprNode>()
+                    : null;
+                ExprNode? update = forControl.forUpdate is not null
+                    ? this.ExpressionListExpression(forControl.forUpdate)
+                    : null;
+                return new ForStatNode(ctx.Start.Line, init, condition, update, body);
+            }
+
+            if (ctx.DO() is not null) {
+                StatNode firstRun = this.Visit(ctx.statement().Single()).As<StatNode>();
+                StatNode loopBody = this.Visit(ctx.statement().Single()).As<StatNode>();
+                ExprNode condition = this.Visit(ctx.parExpression()).As<ExprNode>();
+                return new BlockStatNode(ctx.Start.Line, firstRun, new WhileStatNode(ctx.Start.Line, condition, loopBody));
+            }
+
+            if (ctx.WHILE() is not null) {
+                ExprNode condition = this.Visit(ctx.parExpression()).As<ExprNode>();
+                StatNode statement = this.Visit(ctx.statement().Single()).As<StatNode>();
+                return new WhileStatNode(ctx.Start.Line, condition, statement);
+            }
+
+            if (ctx.TRY() is not null) {
+                var parts = new List<ASTNode>();
+                if (ctx.resourceSpecification() is not null)
+                    parts.Add(this.MarkerStatement(ctx.Start.Line, "__linvast_try_resources", new IdNode(ctx.resourceSpecification().Start.Line, ctx.resourceSpecification().GetText())));
+                else
+                    parts.Add(this.MarkerStatement(ctx.Start.Line, "__linvast_try"));
+
+                parts.Add(this.Visit(ctx.block()).As<BlockStatNode>());
+                parts.AddRange(ctx.catchClause().Select(this.Visit));
+                if (ctx.finallyBlock() is not null)
+                    parts.Add(this.Visit(ctx.finallyBlock()));
+
+                return new BlockStatNode(ctx.Start.Line, parts);
+            }
+
+            if (ctx.SWITCH() is not null) {
+                ExprNode condition = this.Visit(ctx.parExpression()).As<ExprNode>();
+                IEnumerable<ASTNode> groups = ctx.switchBlockStatementGroup().Select(this.Visit);
+                IEnumerable<ASTNode> trailingLabels = ctx.switchLabel()
+                    .Select(label => new LabeledStatNode(
+                        label.Start.Line,
+                        this.SwitchLabelText(label),
+                        new EmptyStatNode(label.Start.Line)));
+                return new SwitchStatNode(ctx.Start.Line, condition, new BlockStatNode(ctx.Start.Line, groups.Concat(trailingLabels)));
+            }
+
+            if (ctx.SYNCHRONIZED() is not null) {
+                ExprNode condition = this.Visit(ctx.parExpression()).As<ExprNode>();
+                BlockStatNode body = this.Visit(ctx.block()).As<BlockStatNode>();
+                return new BlockStatNode(ctx.Start.Line, this.MarkerStatement(ctx.Start.Line, "__linvast_synchronized", condition), body);
+            }
+
+            if (ctx.identifierLabel is not null)
+                return new LabeledStatNode(ctx.Start.Line, ctx.identifierLabel.Text, this.Visit(ctx.statement().Single()).As<StatNode>());
+
+            throw new NotImplementedException($"Java statement: {ctx.Start.Text}");
+        }
+
+        public override ASTNode VisitCatchClause([NotNull] CatchClauseContext ctx)
+            => new LabeledStatNode(
+                ctx.Start.Line,
+                $"catch {ctx.catchType().GetText()} {ctx.IDENTIFIER().GetText()}",
+                this.Visit(ctx.block()).As<BlockStatNode>());
+
+        public override ASTNode VisitCatchType([NotNull] CatchTypeContext ctx)
+            => new TypeNameNode(ctx.Start.Line, ctx.GetText());
+
+        public override ASTNode VisitFinallyBlock([NotNull] FinallyBlockContext ctx)
+            => new LabeledStatNode(ctx.Start.Line, "finally", this.Visit(ctx.block()).As<BlockStatNode>());
+
+        public override ASTNode VisitSwitchBlockStatementGroup([NotNull] SwitchBlockStatementGroupContext ctx)
+        {
+            StatNode statement = new BlockStatNode(ctx.Start.Line, ctx.blockStatement().Select(this.Visit));
+            foreach (SwitchLabelContext label in ctx.switchLabel().Reverse())
+                statement = new LabeledStatNode(label.Start.Line, this.SwitchLabelText(label), statement);
+
+            return statement;
+        }
+
+        public override ASTNode VisitSwitchLabel([NotNull] SwitchLabelContext ctx)
+            => new LabeledStatNode(ctx.Start.Line, this.SwitchLabelText(ctx), new EmptyStatNode(ctx.Start.Line));
+
         public override ASTNode VisitClassBody([NotNull] ClassBodyContext ctx)
             => new BlockStatNode(ctx.Start.Line);
 
@@ -520,10 +740,109 @@ namespace LINVAST.Imperative.Builders.Java
             => new BlockStatNode(ctx.Start.Line);
 
         public override ASTNode VisitMethodBody([NotNull] MethodBodyContext ctx)
-            => new BlockStatNode(ctx.Start.Line);
+            => ctx.block() is not null ? this.Visit(ctx.block()) : new BlockStatNode(ctx.Start.Line);
 
         public override ASTNode VisitFormalParameters([NotNull] FormalParametersContext ctx)
             => new FuncParamsNode(ctx.Start.Line);
+
+        private string SwitchLabelText([NotNull] SwitchLabelContext ctx)
+        {
+            if (ctx.DEFAULT() is not null)
+                return "default";
+
+            if (ctx.constantExpression is not null)
+                return $"case {this.Visit(ctx.constantExpression).As<ExprNode>().GetText()}";
+
+            return $"case {ctx.enumConstantName.Text}";
+        }
+
+        private ExprNode? ForInitExpression([NotNull] ForInitContext ctx)
+        {
+            if (ctx.expressionList() is not null)
+                return this.ExpressionListExpression(ctx.expressionList());
+
+            if (ctx.localVariableDeclaration() is not null)
+                return this.StatementExpression(this.Visit(ctx.localVariableDeclaration()));
+
+            return null;
+        }
+
+        private ExprNode ExpressionListExpression([NotNull] ExpressionListContext ctx)
+        {
+            ExprListNode list = this.Visit(ctx).As<ExprListNode>();
+            ExprNode[] expressions = list.Expressions.ToArray();
+            return expressions.Length == 1 ? expressions[0] : list;
+        }
+
+        private DeclStatNode EnhancedForIteratorDeclaration([NotNull] EnhancedForControlContext ctx)
+        {
+            string modifiers = "";
+            int? declSpecsStartLine = null;
+            IEnumerable<TagNode> tags = Enumerable.Empty<TagNode>();
+            if (ctx.variableModifier() is { } varModifierCtxList && varModifierCtxList.Any()) {
+                tags = varModifierCtxList
+                    .Where(modCtx => modCtx.annotation() is not null)
+                    .Select(modCtx => this.Visit(modCtx.annotation()).As<TagNode>());
+                modifiers = string.Join(" ",
+                    varModifierCtxList
+                        .Select(modCtx => this.ProcessVariableModifier(modCtx))
+                        .Where(mod => !string.IsNullOrWhiteSpace(mod)));
+                declSpecsStartLine = varModifierCtxList.First().Start.Line;
+            }
+
+            TypeNameNode typeName = this.Visit(ctx.typeType()).As<TypeNameNode>();
+            declSpecsStartLine ??= typeName.Line;
+            var declSpecs = new DeclSpecsNode(declSpecsStartLine ?? ctx.Start.Line, modifiers, typeName);
+            DeclNode declarator = this.EnhancedForIteratorDeclarator(ctx.variableDeclaratorId());
+            var declList = new DeclListNode(declarator.Line, declarator);
+
+            return tags.Any()
+                ? new DeclStatNode(ctx.Start.Line, tags, declSpecs, declList)
+                : new DeclStatNode(ctx.Start.Line, declSpecs, declList);
+        }
+
+        private DeclNode EnhancedForIteratorDeclarator([NotNull] VariableDeclaratorIdContext ctx)
+        {
+            var identifier = new IdNode(ctx.Start.Line, ctx.IDENTIFIER().GetText());
+            return ctx.LBRACK().Any()
+                ? new ArrDeclNode(ctx.Start.Line, identifier)
+                : new VarDeclNode(ctx.Start.Line, identifier);
+        }
+
+        private ExprNode? StatementExpression(ASTNode? node)
+        {
+            if (node is null || node is EmptyStatNode)
+                return null;
+            if (node is ExprNode expression)
+                return expression;
+            if (node is ExprStatNode exprStat)
+                return exprStat.Expression;
+            if (node is BlockStatNode block) {
+                ExprNode[] expressions = block.Children
+                    .Select(this.StatementExpression)
+                    .Where(e => e is not null)
+                    .Cast<ExprNode>()
+                    .ToArray();
+                return expressions.Length switch
+                {
+                    0 => null,
+                    1 => expressions[0],
+                    _ => new ExprListNode(block.Line, expressions),
+                };
+            }
+            if (node is StatNode stat)
+                return this.MarkerExpression(stat.Line, "__linvast_stmt", new IdNode(stat.Line, stat.GetText()));
+
+            return this.MarkerExpression(node.Line, "__linvast_node", new IdNode(node.Line, node.GetText()));
+        }
+
+        private ExprStatNode MarkerStatement(int line, string marker, params ExprNode[] args) =>
+            new ExprStatNode(line, this.MarkerExpression(line, marker, args));
+
+        private FuncCallExprNode MarkerExpression(int line, string marker, params ExprNode[] args) =>
+            args.Any()
+                ? new FuncCallExprNode(line, new IdNode(line, marker), new ExprListNode(line, args))
+                : new FuncCallExprNode(line, new IdNode(line, marker));
 
         #endregion
     }

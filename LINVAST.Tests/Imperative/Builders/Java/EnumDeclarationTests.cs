@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using LINVAST.Imperative.Builders.Java;
 using LINVAST.Imperative.Nodes;
 using LINVAST.Nodes;
@@ -85,6 +86,20 @@ namespace LINVAST.Tests.Imperative.Builders.Java
             ";
             EnumDeclNode ast1 = this.GenerateAST(src1).As<EnumDeclNode>();
             Assert.That(ast1.Identifier, Is.EqualTo("ClientInfoStatus"));
+        }
+
+        [Test]
+        public void EnumConstantArgumentsAndImplementsTest()
+        {
+            const string src1 = "enum Status implements Printable { OK(200), FAIL(500) }";
+
+            EnumDeclNode ast1 = this.GenerateAST(src1).As<EnumDeclNode>();
+            VarDeclNode first = ast1.Constants.Declarators.First().As<VarDeclNode>();
+
+            Assert.That(ast1.Identifier, Is.EqualTo("Status"));
+            Assert.That(first.Identifier, Is.EqualTo("OK"));
+            Assert.That(first.Initializer, Is.InstanceOf<FuncCallExprNode>());
+            Assert.That(first.Initializer!.As<FuncCallExprNode>().Identifier, Is.EqualTo("OK"));
         }
         
         protected override ASTNode GenerateAST(string src)

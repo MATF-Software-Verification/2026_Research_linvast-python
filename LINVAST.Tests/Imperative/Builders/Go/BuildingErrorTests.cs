@@ -56,7 +56,6 @@ namespace LINVAST.Tests.Imperative.Builders.Go
         public void InvalidForStatementTests()
         {
             this.AssertThrows<SyntaxErrorException>("package test; func test() {for (x := 0; x < 5; x++) {}}");
-            this.AssertThrows<NotImplementedException>("package test; func test() {for x := 0; x < 5; x++ {}}");
             this.AssertThrows<SyntaxErrorException>("package test; func test() {for (;;;;){}}");
         }
 

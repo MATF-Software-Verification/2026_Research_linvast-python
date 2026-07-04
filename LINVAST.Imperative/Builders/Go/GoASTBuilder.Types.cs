@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using LINVAST.Builders;
 using LINVAST.Imperative.Nodes;
 using LINVAST.Nodes;
@@ -60,27 +61,81 @@ namespace LINVAST.Imperative.Builders.Go
             return this.Visit(context.type_());
         }
         
-        public override ASTNode VisitSliceType(GoParser.SliceTypeContext context) => this.Visit(context.elementType()).As<TypeNode>();
+        public override ASTNode VisitSliceType(GoParser.SliceTypeContext context)
+            => new TypeNameNode(context.Start.Line, $"[]{this.Visit(context.elementType()).As<TypeNameNode>().GetText()}");
 
         public override ASTNode VisitFunctionType(GoParser.FunctionTypeContext context) => this.Visit(context.signature());
 
-        public override ASTNode VisitInterfaceType(GoParser.InterfaceTypeContext context) => throw new NotImplementedException("Interface type");
+        public override ASTNode VisitInterfaceType(GoParser.InterfaceTypeContext context)
+            => new TypeNameNode(context.Start.Line, context.GetText());
         
-        public override ASTNode VisitArrayType(GoParser.ArrayTypeContext context) => throw new NotImplementedException("Array type");
+        public override ASTNode VisitArrayType(GoParser.ArrayTypeContext context)
+            => new TypeNameNode(
+                context.Start.Line,
+                $"[{this.Visit(context.arrayLength()).As<ExprNode>().GetText()}]{this.Visit(context.elementType()).As<TypeNameNode>().GetText()}");
         
-        public override ASTNode VisitStructType(GoParser.StructTypeContext context) => throw new NotImplementedException("Struct type");
+        public override ASTNode VisitStructType(GoParser.StructTypeContext context)
+            => new TypeNameNode(context.Start.Line, context.GetText());
 
-        public override ASTNode VisitPointerType(GoParser.PointerTypeContext context) => throw new NotImplementedException("Pointer type");
+        public override ASTNode VisitPointerType(GoParser.PointerTypeContext context)
+            => new TypeNameNode(context.Start.Line, $"*{this.Visit(context.type_()).As<TypeNameNode>().GetText()}");
 
-        public override ASTNode VisitMethodSpec(GoParser.MethodSpecContext context) => throw new NotImplementedException("Method type");
+        public override ASTNode VisitMethodSpec(GoParser.MethodSpecContext context)
+        {
+            var identifier = new IdNode(context.Start.Line, context.IDENTIFIER().GetText());
+            FuncParamsNode parameters = this.Visit(context.parameters()).As<FuncParamsNode>();
+            TypeNameNode returnType = context.result() is null
+                ? new TypeNameNode(context.Start.Line, "void")
+                : ResultTypeName(context.result());
+            var declSpecs = new DeclSpecsNode(context.Start.Line, returnType);
+            return new DeclStatNode(context.Start.Line, declSpecs, new DeclListNode(context.Start.Line, new FuncDeclNode(context.Start.Line, identifier, parameters)));
+        }
 
-        public override ASTNode VisitMapType(GoParser.MapTypeContext context) => throw new NotImplementedException("Map type");
+        public override ASTNode VisitMapType(GoParser.MapTypeContext context)
+            => new TypeNameNode(
+                context.Start.Line,
+                $"map[{this.Visit(context.type_()).As<TypeNameNode>().GetText()}]{this.Visit(context.elementType()).As<TypeNameNode>().GetText()}");
       
-        public override ASTNode VisitChannelType(GoParser.ChannelTypeContext context) => throw new NotImplementedException("Channel type");
+        public override ASTNode VisitChannelType(GoParser.ChannelTypeContext context)
+            => new TypeNameNode(context.Start.Line, context.GetText());
 
-        public override ASTNode VisitConversion(GoParser.ConversionContext context) => throw new NotImplementedException("Conversion");
+        public override ASTNode VisitConversion(GoParser.ConversionContext context)
+        {
+            TypeNameNode type = this.Visit(context.nonNamedType()).As<TypeNameNode>();
+            ExprNode expression = this.Visit(context.expression()).As<ExprNode>();
+            return new ConsExprNode(context.Start.Line, new IdNode(context.Start.Line, type.GetText()), new ExprListNode(context.Start.Line, expression));
+        }
         
-        public override ASTNode VisitEmbeddedField(GoParser.EmbeddedFieldContext context) => throw new NotImplementedException("Embedded field");
-        public override ASTNode VisitFieldDecl(GoParser.FieldDeclContext context) => throw new NotImplementedException("Field decl");
+        public override ASTNode VisitEmbeddedField(GoParser.EmbeddedFieldContext context)
+            => new TypeNameNode(context.Start.Line, context.GetText());
+
+        public override ASTNode VisitFieldDecl(GoParser.FieldDeclContext context)
+        {
+            TypeNameNode type = context.type_() is not null
+                ? this.Visit(context.type_()).As<TypeNameNode>()
+                : this.Visit(context.embeddedField()).As<TypeNameNode>();
+            var declSpecs = new DeclSpecsNode(context.Start.Line, type);
+            IEnumerable<DeclNode> declarators = context.identifierList() is null
+                ? new[] { new VarDeclNode(context.Start.Line, new IdNode(context.Start.Line, type.GetText())) }
+                : this.Visit(context.identifierList()).As<IdListNode>().Identifiers.Select(id => new VarDeclNode(id.Line, id));
+            return new DeclStatNode(context.Start.Line, declSpecs, new DeclListNode(context.Start.Line, declarators));
+        }
+
+        private TypeNameNode ResultTypeName(GoParser.ResultContext context)
+        {
+            if (context.type_() is not null)
+                return this.Visit(context.type_()).As<TypeNameNode>();
+
+            FuncParamsNode parameters = this.Visit(context.parameters()).As<FuncParamsNode>();
+            return new TypeNameNode(context.Start.Line, $"({string.Join(", ", parameters.Parameters.Select(ResultParameterText))})");
+        }
+
+        private static string ResultParameterText(FuncParamNode parameter)
+        {
+            string identifier = parameter.Declarator.Identifier;
+            return identifier == "."
+                ? parameter.Specifiers.TypeName
+                : $"{parameter.Specifiers.TypeName} {identifier}";
+        }
     }
 }

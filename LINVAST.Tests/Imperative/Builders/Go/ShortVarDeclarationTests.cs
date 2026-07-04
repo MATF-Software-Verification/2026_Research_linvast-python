@@ -1,5 +1,7 @@
 using System;
+using System.Linq;
 using LINVAST.Imperative.Builders.Go;
+using LINVAST.Imperative.Nodes;
 using LINVAST.Imperative.Nodes.Common;
 using LINVAST.Nodes;
 using LINVAST.Tests.Imperative.Builders.Common;
@@ -16,11 +18,11 @@ namespace LINVAST.Tests.Imperative.Builders.Go
           this.AssertVariableDeclaration("i:= 3", "i", "Int64", value: 3 );
           this.AssertVariableDeclaration("s:= \"str\" ", "s", "String", value: "str" );
           
-          string src1 = "i, s := 3, \"str\" ";
-          Assert.That(() => this.GenerateAST(src1), Throws.InstanceOf<NotImplementedException>());
+          this.AssertVariableDeclarationList("i, s := 3, \"str\" ", "object", AccessModifiers.Unspecified,
+              QualifierFlags.None, ("i", 3), ("s", "str"));
           
-          string src2 = "f := func() int { return 7 }";
-          Assert.That(() => this.GenerateAST(src2), Throws.InstanceOf<NotImplementedException>());
+          DeclStatNode funcDecl = this.AssertDeclarationNode("f := func() int { return 7 }", "object");
+          Assert.That(funcDecl.DeclaratorList.Declarators.Single().As<VarDeclNode>().Initializer, Is.InstanceOf<LambdaFuncExprNode>());
       }
         
         protected override ASTNode GenerateAST(string src)

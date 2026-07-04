@@ -15,9 +15,11 @@ namespace LINVAST.Imperative.Nodes.Common
                 "/" => DividePrimitive,
                 "<<" => ShiftLeftPrimitive,
                 ">>" => ShiftRightPrimitive,
+                ">>>" => ShiftRightPrimitive,
                 "%" => ModulusPrimitive,
-                "//" => throw new NotImplementedException(symbol),
-                "div" => throw new NotImplementedException(symbol),
+                "//" => FloorDividePrimitive,
+                "^" => PowerPrimitive,
+                "div" => FloorDividePrimitive,
                 "mod" => ModulusPrimitive,
                 _ => throw new UnknownOperatorException(symbol),
             };
@@ -53,6 +55,7 @@ namespace LINVAST.Imperative.Nodes.Common
                 "%=" => ModulusPrimitive,
                 "<<=" => ShiftLeftPrimitive,
                 ">>=" => ShiftRightPrimitive,
+                ">>>=" => ShiftRightPrimitive,
                 "&=" => BitwiseAndPrimitive,
                 "|=" => BitwiseOrPrimitive,
                 "^=" => BitwiseXorPrimitive,
@@ -214,6 +217,78 @@ namespace LINVAST.Imperative.Nodes.Common
                 return Convert.ToSByte(x) / Convert.ToSByte(y);
             else
                 throw new EvaluationException("Cannot divide non-primitive types");
+        }
+
+        public static object FloorDividePrimitive(object x, object y)
+        {
+            ThrowIfNotPrimitiveTypes(x, y);
+
+            if (x is string || y is string)
+                throw new EvaluationException("Cannot divide strings");
+            else if (x is decimal || y is decimal)
+                return Math.Floor(Convert.ToDecimal(x) / Convert.ToDecimal(y));
+            else if (x is double || y is double)
+                return Math.Floor(Convert.ToDouble(x) / Convert.ToDouble(y));
+            else if (x is float || y is float)
+                return (float)Math.Floor(Convert.ToSingle(x) / Convert.ToSingle(y));
+
+            decimal result = Math.Floor(Convert.ToDecimal(x) / Convert.ToDecimal(y));
+            if (x is ulong || y is ulong)
+                return Convert.ToUInt64(result);
+            else if (x is long || y is long)
+                return Convert.ToInt64(result);
+            else if (x is uint || y is uint)
+                return Convert.ToUInt32(result);
+            else if (x is int || y is int)
+                return Convert.ToInt32(result);
+            else if (x is ushort || y is ushort)
+                return Convert.ToUInt16(result);
+            else if (x is short || y is short)
+                return Convert.ToInt16(result);
+            else if (x is char || y is char)
+                return Convert.ToChar(result);
+            else if (x is byte || y is byte)
+                return Convert.ToByte(result);
+            else if (x is sbyte || y is sbyte)
+                return Convert.ToSByte(result);
+            else
+                throw new EvaluationException("Cannot divide non-primitive types");
+        }
+
+        public static object PowerPrimitive(object x, object y)
+        {
+            ThrowIfNotPrimitiveTypes(x, y);
+
+            if (x is string || y is string)
+                throw new EvaluationException("Cannot exponentiate strings");
+
+            double result = Math.Pow(Convert.ToDouble(x), Convert.ToDouble(y));
+            bool isIntegralResult = Math.Abs(result % 1) < double.Epsilon;
+            bool hasNegativeExponent = Convert.ToDouble(y) < 0;
+            if (!isIntegralResult || hasNegativeExponent || x is decimal || y is decimal || x is double || y is double)
+                return result;
+            else if (x is float || y is float)
+                return (float)result;
+            else if (x is ulong || y is ulong)
+                return Convert.ToUInt64(result);
+            else if (x is long || y is long)
+                return Convert.ToInt64(result);
+            else if (x is uint || y is uint)
+                return Convert.ToUInt32(result);
+            else if (x is int || y is int)
+                return Convert.ToInt32(result);
+            else if (x is ushort || y is ushort)
+                return Convert.ToUInt16(result);
+            else if (x is short || y is short)
+                return Convert.ToInt16(result);
+            else if (x is char || y is char)
+                return Convert.ToChar(result);
+            else if (x is byte || y is byte)
+                return Convert.ToByte(result);
+            else if (x is sbyte || y is sbyte)
+                return Convert.ToSByte(result);
+            else
+                throw new EvaluationException("Cannot exponentiate non-primitive types");
         }
 
         public static object ModulusPrimitive(object x, object y)

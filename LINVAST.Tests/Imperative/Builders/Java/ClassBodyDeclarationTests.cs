@@ -23,8 +23,11 @@ namespace LINVAST.Tests.Imperative.Builders.Java
         {
             string src1 = "static {}";
             string src2 = "static {x=3;}";
-            Assert.That(() => this.GenerateAST(src1), Throws.InstanceOf<NotImplementedException>());
-            Assert.That(() => this.GenerateAST(src2), Throws.InstanceOf<NotImplementedException>());
+            BlockStatNode ast1 = this.GenerateAST(src1).As<BlockStatNode>();
+            BlockStatNode ast2 = this.GenerateAST(src2).As<BlockStatNode>();
+
+            Assert.That(ast1.Children, Is.Empty);
+            Assert.That(ast2.Children.Single(), Is.InstanceOf<ExprStatNode>());
         }
 
         [Test]
@@ -32,19 +35,22 @@ namespace LINVAST.Tests.Imperative.Builders.Java
         {
             string src1 = "{}";
             string src2 = "{x=3;}";
-            Assert.That(() => this.GenerateAST(src1), Throws.InstanceOf<NotImplementedException>());
-            Assert.That(() => this.GenerateAST(src2), Throws.InstanceOf<NotImplementedException>());
+            BlockStatNode ast1 = this.GenerateAST(src1).As<BlockStatNode>();
+            BlockStatNode ast2 = this.GenerateAST(src2).As<BlockStatNode>();
+
+            Assert.That(ast1.Children, Is.Empty);
+            Assert.That(ast2.Children.Single(), Is.InstanceOf<ExprStatNode>());
         }
 
         [Test]
         public void WithAnnotationClassBodyDeclTest()
         {
-            string src1 = @"@Override 
-                            public string toString() 
-                            {
-                                return this.attr.toString();
-                            }";
-            Assert.That(() => this.GenerateAST(src1), Throws.InstanceOf<NotImplementedException>());
+            string src1 = "@Override public String toString() {}";
+            DeclStatNode ast1 = this.GenerateAST(src1).As<DeclStatNode>();
+
+            Assert.That(ast1.Tags.Single().Identifier, Is.EqualTo("Override"));
+            Assert.That(ast1.Specifiers.Modifiers.ToString(), Is.EqualTo("public"));
+            Assert.That(ast1.DeclaratorList.Declarators.Single().As<FuncDeclNode>().Identifier, Is.EqualTo("toString"));
         }
 
         [Test]
@@ -153,6 +159,16 @@ namespace LINVAST.Tests.Imperative.Builders.Java
                 Is.EqualTo(0));
         }
 
+        [Test]
+        public void ThrowsMethodDeclarationTest()
+        {
+            string src1 = "String f() throws Exception {}";
+            DeclStatNode ast1 = this.GenerateAST(src1).As<DeclStatNode>();
+
+            Assert.That(ast1.Specifiers.TypeName, Is.EqualTo("String"));
+            Assert.That(ast1.DeclaratorList.Declarators.Single().As<FuncDeclNode>().Identifier, Is.EqualTo("f"));
+        }
+
 
         [Test]
         public void WithModifiersMethodDeclarationTest()
@@ -208,7 +224,10 @@ namespace LINVAST.Tests.Imperative.Builders.Java
         public void AnnotationTypeDeclarationTest()
         {
             string src1 = "@interface Id1 {}";
-            Assert.That(() => this.GenerateAST(src1), Throws.InstanceOf<NotImplementedException>());
+            DeclStatNode ast1 = this.GenerateAST(src1).As<DeclStatNode>();
+
+            Assert.That(ast1.Specifiers.TypeName, Is.EqualTo("Id1"));
+            Assert.That(ast1.DeclaratorList.Declarators.Single().As<TypeDeclNode>().Identifier, Is.EqualTo("Id1"));
         }
 
 

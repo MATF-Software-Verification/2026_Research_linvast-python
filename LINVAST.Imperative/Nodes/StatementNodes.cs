@@ -328,6 +328,23 @@ namespace LINVAST.Imperative.Nodes
             => $"match {this.Subject.GetText()} {{ {string.Join(" ", this.Cases.Select(c => c.GetText()))} }}";
     }
 
+    public sealed class SwitchStatNode : ComplexStatNode
+    {
+        [JsonIgnore]
+        public ExprNode Condition => this.Children[0].As<ExprNode>();
+
+        [JsonIgnore]
+        public BlockStatNode Body => this.Children[1].As<BlockStatNode>();
+
+
+        public SwitchStatNode(int line, ExprNode cond, BlockStatNode body)
+            : base(line, cond, body) { }
+
+
+        public override string GetText()
+            => $"switch {this.Condition.GetText()} {this.Body.GetText()}";
+    }
+
     public sealed class JumpStatNode : SimpleStatNode
     {
         public JumpStatType Type { get; set; }
@@ -457,6 +474,47 @@ namespace LINVAST.Imperative.Nodes
             sb.Append(" }");
             return sb.ToString();
         }
+    }
+
+    public sealed class ForeachStatNode : ComplexStatNode
+    {
+        [JsonIgnore]
+        public DeclStatNode IteratorDeclaration => this.Children[0].As<DeclStatNode>();
+
+        [JsonIgnore]
+        public DeclSpecsNode IteratorSpecifiers => this.IteratorDeclaration.Specifiers;
+
+        [JsonIgnore]
+        public TypeNameNode IteratorType => this.IteratorSpecifiers.TypeNode;
+
+        [JsonIgnore]
+        public DeclNode IteratorDeclarator => this.IteratorDeclaration.DeclaratorList.Declarators.Single();
+
+        [JsonIgnore]
+        public IdNode Iterator => this.IteratorDeclarator.IdentifierNode;
+
+        [JsonIgnore]
+        public ExprNode Iterable => this.Children[1].As<ExprNode>();
+
+        [JsonIgnore]
+        public StatNode Statement => this.Children[2].As<StatNode>();
+
+
+        public ForeachStatNode(int line, DeclStatNode iteratorDeclaration, ExprNode iterable, StatNode stat)
+            : base(line, iteratorDeclaration, iterable, stat) { }
+
+        public ForeachStatNode(int line, TypeNameNode iteratorType, IdNode iterator, ExprNode iterable, StatNode stat)
+            : this(
+                line,
+                new DeclStatNode(
+                    line,
+                    new DeclSpecsNode(iteratorType.Line, iteratorType),
+                    new DeclListNode(iterator.Line, new VarDeclNode(iterator.Line, iterator))),
+                iterable,
+                stat) { }
+
+        public override string GetText()
+            => $"foreach ({this.IteratorSpecifiers.GetText()} {this.IteratorDeclarator.GetText()} : {this.Iterable.GetText()}) {{ {this.Statement.GetText()} }}";
     }
 
     public sealed class ThrowStatNode : ExprStatNode

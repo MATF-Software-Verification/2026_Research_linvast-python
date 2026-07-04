@@ -6,33 +6,21 @@ branches:
   - master
 skip_tags: true
 max_jobs: 1
-image: Visual Studio 2019
+image: Ubuntu
 clone_depth: 1
 build_script:
-- ps: |-
-    # Version number
-    $BUILD_NUMBER = [int]$Env:APPVEYOR_BUILD_NUMBER
-    $BUILD_SUFFIX = "dev"
+- sh: |-
+    set -euo pipefail
 
-    # Branch
-    $BRANCH = "$Env:APPVEYOR_REPO_BRANCH"
-    $Env:DOCFX_SOURCE_BRANCH_NAME = "$BRANCH"
+    export DOCFX_SOURCE_BRANCH_NAME="${APPVEYOR_REPO_BRANCH}"
 
-    # Output directory
-    $Env:ARTIFACT_DIR = ".\artifacts"
-    $dir = New-Item -type directory $env:ARTIFACT_DIR
-    $dir = $dir.FullName
-
-    # Verbosity
-    Write-Host "Build: $BUILD_NUMBER / Branch: $BRANCH"
-    Write-Host "Artifacts will be placed in: $dir"
-
-    Write-Host "Commencing build"
-    & .\rebuild-all.ps1 -ArtifactLocation "$dir" -Configuration "Release" -VersionSuffix "$BUILD_SUFFIX" -BuildNumber $BUILD_NUMBER 
+    echo "Build: ${APPVEYOR_BUILD_NUMBER} / Branch: ${APPVEYOR_REPO_BRANCH}"
+    echo "Commencing build"
+    ./release --artifacts ./artifacts --configuration Release --version-suffix dev --build-number "${APPVEYOR_BUILD_NUMBER}"
     
 dotnet_csproj:
   patch: true
-  file: '**\*.csproj'
+  file: '**/*.csproj'
   version: $(appveyor_build_version)
   package_version: $(appveyor_build_version)
   assembly_version: $(appveyor_build_version)
@@ -40,12 +28,10 @@ dotnet_csproj:
   informational_version: $(appveyor_build_version)
 
 artifacts:
-- path: artifacts\*.nupkg
+- path: artifacts/*.nupkg
 
 test_script:
-  - cmd: dotnet restore ./LINVAST.Tests/LINVAST.Tests.csproj --verbosity m
-  - cmd: cd LINVAST.Tests
-  - cmd: dotnet test
+  - sh: ./test --configuration Release --no-restore --no-build
 
 deploy:
 - provider: NuGet

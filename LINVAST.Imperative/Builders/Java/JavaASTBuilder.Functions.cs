@@ -222,7 +222,10 @@ namespace LINVAST.Imperative.Builders.Java
                 }
             }
 
-            throw new NotImplementedException("Implementation pending (there are dependencies on statements (blocks), arrays and some type arguments that are not implemented atm)");
+            return new FuncCallExprNode(
+                ctx.Start.Line,
+                new IdNode(ctx.Start.Line, "__linvast_new"),
+                new ExprListNode(ctx.Start.Line, new IdNode(ctx.Start.Line, ctx.GetText())));
         }
 
         public override ASTNode VisitCreatedName([NotNull] CreatedNameContext ctx)
@@ -271,11 +274,10 @@ namespace LINVAST.Imperative.Builders.Java
             }
 
             if (ctx.expression().Any()) {
-                if (ctx.expression().Length == 1) {
-                    return this.Visit(ctx.expression(0)).As<ExprNode>();
-                } else {
-                    throw new NotImplementedException("Multidimensional array.");
-                }
+                ExprNode[] dimensions = ctx.expression().Select(e => this.Visit(e).As<ExprNode>()).ToArray();
+                return dimensions.Length == 1
+                    ? dimensions[0]
+                    : new ExprListNode(ctx.Start.Line, dimensions);
             }
 
             throw new SyntaxErrorException("Unknown construct");
@@ -363,9 +365,10 @@ namespace LINVAST.Imperative.Builders.Java
 
         public override ASTNode VisitArguments([NotNull] ArgumentsContext ctx)
         {
-            if (ctx.LPAREN() is not null && ctx.expressionList() is not null && ctx.RPAREN() is not null) {
-                return this.Visit(ctx.expressionList()).As<ExprListNode>();
-            }
+            if (ctx.LPAREN() is not null && ctx.RPAREN() is not null)
+                return ctx.expressionList() is not null
+                    ? this.Visit(ctx.expressionList()).As<ExprListNode>()
+                    : new ExprListNode(ctx.Start.Line);
 
             throw new SyntaxErrorException("Unknown construct");
         }

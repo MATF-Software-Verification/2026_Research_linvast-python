@@ -69,6 +69,38 @@ namespace LINVAST.Tests.Imperative.Builders.Go
         }
 
         [Test]
+        public void MultipleResultDefinitionTest()
+        {
+            FuncNode f = this.AssertFunctionSignature(
+                "func f() (int, string) { return 1, \"ok\" }",
+                1,
+                "f",
+                "(int, string)"
+            );
+
+            JumpStatNode ret = f.Definition!.Children.Single().As<JumpStatNode>();
+            Assert.That(ret.ReturnExpr, Is.InstanceOf<ExprListNode>());
+        }
+
+        [Test]
+        public void NamedResultDefinitionTest()
+        {
+            this.AssertFunctionSignature(
+                "func f() (x, y int) { return }",
+                1,
+                "f",
+                "(int x, int y)"
+            );
+
+            this.AssertFunctionSignature(
+                "func g() (ok bool, message string) { return }",
+                1,
+                "g",
+                "(bool ok, string message)"
+            );
+        }
+
+        [Test]
         public void FunctionReturnExpressionTest()
         {
             this.AssertReturnValue("func g() int { return 3; }", 3);

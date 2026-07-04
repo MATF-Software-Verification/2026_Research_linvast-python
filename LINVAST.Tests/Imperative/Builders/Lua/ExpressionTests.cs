@@ -1,4 +1,7 @@
-﻿using LINVAST.Imperative.Builders.Lua;
+﻿using System.Linq;
+using LINVAST.Imperative.Builders.Lua;
+using LINVAST.Imperative.Nodes;
+using LINVAST.Imperative.Visitors;
 using LINVAST.Nodes;
 using LINVAST.Tests.Imperative.Builders.Common;
 using NUnit.Framework;
@@ -16,6 +19,8 @@ namespace LINVAST.Tests.Imperative.Builders.Lua
             this.AssertExpressionValue("2.3", 2.3);
             this.AssertExpressionValue("'a'", "a");
             this.AssertExpressionValue("\"abc\"", "abc");
+            this.AssertExpressionValue("[[long string]]", "long string");
+            this.AssertExpressionValue("[=[long string]=]", "long string");
         }
 
         [Test]
@@ -27,6 +32,10 @@ namespace LINVAST.Tests.Imperative.Builders.Lua
             this.AssertExpressionValue("1 << (1 + 1 * 2) >> 3", 1);
             this.AssertExpressionValue("2.3 + 4 / 2", 4.3);
             this.AssertExpressionValue("3.3 + (4.1 - 1.1) * 2", 9.3);
+            this.AssertExpressionValue("5 // 2", 2);
+            this.AssertExpressionValue("-5 // 2", -3);
+            this.AssertExpressionValue("2 ^ 3", 8);
+            this.AssertExpressionValue("2 ^ -2", 0.25);
         }
 
         [Test]
@@ -107,6 +116,13 @@ namespace LINVAST.Tests.Imperative.Builders.Lua
             this.AssertExpressionValue("not (1 ~= 0)", false);
             this.AssertExpressionValue("(not true) ~= (not true)", false);
             this.AssertExpressionValue("(not true) ~= false", false);
+            this.AssertExpressionValue("#'abcd'", 4);
+        }
+
+        [Test]
+        public void VarargsExpressionTest()
+        {
+            Assert.That(this.AssertExpression("...").As<IdNode>().Identifier, Is.EqualTo("..."));
         }
 
         [Test]
@@ -128,17 +144,53 @@ namespace LINVAST.Tests.Imperative.Builders.Lua
         [Test]
         public void FunctionCallParameterTests()
         {
-            // TODO
-            Assert.Inconclusive();
-
             this.AssertFunctionCallExpression("f()", "f");
             this.AssertFunctionCallExpression("g(3)", "g", 3);
             this.AssertFunctionCallExpression("g(3, 2)", "g", 3, 2);
-            this.AssertFunctionCallExpression("g(3, 'a')", "g", 3, 'a');
+            this.AssertFunctionCallExpression("g(3, 'a')", "g", 3, "a");
             this.AssertFunctionCallExpression("g(3.1 + 1, 2 * 3)", "g", 3.1 + 1, 2 * 3);
             this.AssertFunctionCallExpression("g(((1 << 2) + 4) >> 3)", "g", ((1 << 2) + 4) >> 3);
-            this.AssertFunctionCallExpression("g(1.1 > 1.0 && 1.0 > 1.02)", "g", false);
-            this.AssertFunctionCallExpression("h(1.01 > 1.0 || 1.0 > 1.02)", "h", true);
+            this.AssertFunctionCallExpression("g(1.1 > 1.0 and 1.0 > 1.02)", "g", false);
+            this.AssertFunctionCallExpression("h(1.01 > 1.0 or 1.0 > 1.02)", "h", true);
+            this.AssertFunctionCallExpression("obj:f(3)", "obj:f", 3);
+            this.AssertFunctionCallExpression("g 'a'", "g", "a");
+
+            FuncCallExprNode tableArgCall = this.GenerateAST("g {x = 1}").As<FuncCallExprNode>();
+            Assert.That(tableArgCall.Identifier, Is.EqualTo("g"));
+            Assert.That(tableArgCall.Arguments!.Expressions.Single(), Is.InstanceOf<DictInitNode>());
+        }
+
+        [Test]
+        public void PrefixMemberAndIndexedExpressionTests()
+        {
+            Assert.That(this.AssertExpression("obj.field").As<IdNode>().Identifier, Is.EqualTo("obj.field"));
+
+            ArrAccessExprNode access = this.AssertExpression("obj.items[2]").As<ArrAccessExprNode>();
+            Assert.That(access.Array.As<IdNode>().Identifier, Is.EqualTo("obj.items"));
+            Assert.That(ConstantExpressionEvaluator.Evaluate(access.IndexExpression), Is.EqualTo(2));
+
+            FuncCallExprNode indexedCall = this.AssertExpression("factory()[1](2)").As<FuncCallExprNode>();
+            Assert.That(indexedCall.Identifier, Is.EqualTo("factory<>()[1]"));
+            Assert.That(indexedCall.Arguments!.Expressions.Select(ConstantExpressionEvaluator.Evaluate), Is.EqualTo(new object[] { 2 }));
+        }
+
+        [Test]
+        public void TableExpressionTests()
+        {
+            DictInitNode dict = this.AssertExpression("{['x'] = 1}").As<DictInitNode>();
+            DictEntryNode entry = dict.Entries.Single();
+
+            Assert.That(entry.Key.Identifier, Is.EqualTo("x"));
+            Assert.That(ConstantExpressionEvaluator.Evaluate(entry.Value), Is.EqualTo(1));
+
+            DictInitNode mixed = this.AssertExpression("{1, name = 2, ['x'] = 3, 4}").As<DictInitNode>();
+            Assert.That(mixed.Entries.Select(e => e.Key.Identifier), Is.EqualTo(new[] { "1", "name", "x", "2" }));
+            Assert.That(mixed.Entries.Select(e => ConstantExpressionEvaluator.Evaluate(e.Value)), Is.EqualTo(new object[] { 1, 2, 3, 4 }));
+
+            DictInitNode nested = this.AssertExpression("{['outer'] = {1, 2}, plain = true}").As<DictInitNode>();
+            Assert.That(nested.Entries.Select(e => e.Key.Identifier), Is.EqualTo(new[] { "outer", "plain" }));
+            Assert.That(nested.Entries.First().Value, Is.InstanceOf<ExprListNode>());
+            Assert.That(ConstantExpressionEvaluator.Evaluate(nested.Entries.Last().Value), Is.EqualTo(true));
         }
 
 
