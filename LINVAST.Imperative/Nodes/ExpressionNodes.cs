@@ -290,6 +290,52 @@ namespace LINVAST.Imperative.Nodes
         public override bool Equals([AllowNull] ASTNode other) => other is NullLitExprNode;
     }
 
+    public sealed class EllipsisLitExprNode : LitExprNode
+    {
+        public EllipsisLitExprNode(int line)
+            : base(line, "...", TypeCode.Object) { }
+
+
+        public override string GetText() => "...";
+
+        public override bool Equals([AllowNull] ASTNode other) => other is EllipsisLitExprNode;
+    }
+
+    public sealed class YieldExprNode : ExprNode
+    {
+        public bool IsDelegating { get; }
+
+        [JsonIgnore]
+        public ExprNode? Value => this.Children.FirstOrDefault() as ExprNode;
+
+
+        public YieldExprNode(int line)
+            : base(line)
+        {
+            this.IsDelegating = false;
+        }
+
+        public YieldExprNode(int line, ExprNode value, bool isDelegating = false)
+            : base(line, value)
+        {
+            this.IsDelegating = isDelegating;
+        }
+
+
+        public override string GetText()
+        {
+            if (this.Value is null)
+                return "yield";
+
+            return this.IsDelegating
+                ? $"yield from {this.Value.GetText()}"
+                : $"yield {this.Value.GetText()}";
+        }
+
+        public override bool Equals([AllowNull] ASTNode other)
+            => base.Equals(other) && this.IsDelegating == ((YieldExprNode)other!).IsDelegating;
+    }
+
     public sealed class CondExprNode : ExprNode
     {
         [JsonIgnore]
