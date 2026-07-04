@@ -16,10 +16,13 @@ namespace LINVAST.Imperative.Builders.Python
     {
         public ASTNode BuildFromSource(string code) => this.Visit(this.CreateParser(code).file_input());
 
-        public Python3Parser CreateParser(string code)
+        public Python3Parser CreateParser(string code) => this.CreateParser(code, initialLine: 1);
+
+        private Python3Parser CreateParser(string code, int initialLine)
         {
             ICharStream stream = CharStreams.fromstring(code);
             var lexer = new Python3Lexer(stream);
+            lexer.Line = initialLine;
             lexer.AddErrorListener(new ThrowExceptionErrorListener());
             ITokenStream tokens = new CommonTokenStream(lexer);
             var parser = new Python3Parser(tokens);
@@ -31,6 +34,9 @@ namespace LINVAST.Imperative.Builders.Python
 
         public ASTNode BuildFromSource(string code, Func<Python3Parser, ParserRuleContext> entryProvider) =>
             this.Visit(entryProvider(this.CreateParser(code)));
+
+        private ASTNode BuildFromSource(string code, Func<Python3Parser, ParserRuleContext> entryProvider, int initialLine) =>
+            this.Visit(entryProvider(this.CreateParser(code, initialLine)));
 
         public override ASTNode Visit(IParseTree tree)
         {

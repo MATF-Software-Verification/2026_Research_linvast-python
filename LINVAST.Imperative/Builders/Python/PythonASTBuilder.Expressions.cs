@@ -607,7 +607,7 @@ namespace LINVAST.Imperative.Builders.Python
                 return new LitExprNode(line, string.Empty);
 
             try {
-                return this.BuildFromSource(exprSrc, p => p.testlist()).As<ExprNode>();
+                return this.BuildFromSource(exprSrc, p => p.testlist(), line).As<ExprNode>();
             } catch {
                 return new LitExprNode(line, exprSrc);
             }

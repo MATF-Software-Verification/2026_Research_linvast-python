@@ -78,6 +78,14 @@ namespace LINVAST.Tests.Imperative.Builders.Python
         }
 
         [Test]
+        public void MemberAccessAfterFunctionCallBuildsIdentifier()
+        {
+            var id = this.ParseExpression("f(1).x").As<IdNode>();
+
+            Assert.That(id.Identifier, Does.EndWith(".x"));
+        }
+
+        [Test]
         public void ListComprehensionBuildsListCall()
         {
             var call = this.ParseExpression("[x * 2 for x in items]").As<FuncCallExprNode>();
@@ -86,6 +94,34 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(call.Identifier, Is.EqualTo("list"));
             Assert.That(args[0], Is.TypeOf<ArithmExprNode>());
             Assert.That(args[1].As<FuncCallExprNode>().Identifier, Is.EqualTo("for"));
+        }
+
+        [Test]
+        public void MultilineListComprehensionAssignmentBuildsListCallWithFilter()
+        {
+            var stat = this.ParseStatement(
+                "active_users = [\n" +
+                "    user.name\n" +
+                "    for user in users\n" +
+                "    if user.active\n" +
+                "]\n");
+            var decl = stat.As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var call = decl.Initializer!.As<FuncCallExprNode>();
+            ExprNode[] args = call.Arguments!.Expressions.ToArray();
+
+            Assert.That(decl.Identifier, Is.EqualTo("active_users"));
+            Assert.That(call.Identifier, Is.EqualTo("list"));
+            Assert.That(args[0].As<IdNode>().Identifier, Is.EqualTo("user.name"));
+
+            var forClause = args[1].As<FuncCallExprNode>();
+            ExprNode[] forArgs = forClause.Arguments!.Expressions.ToArray();
+            Assert.That(forClause.Identifier, Is.EqualTo("for"));
+            Assert.That(forArgs[0].As<IdNode>().Identifier, Is.EqualTo("user"));
+            Assert.That(forArgs[1].As<IdNode>().Identifier, Is.EqualTo("users"));
+
+            var ifClause = args[2].As<FuncCallExprNode>();
+            Assert.That(ifClause.Identifier, Is.EqualTo("if"));
+            Assert.That(ifClause.Arguments!.Expressions.Single().As<IdNode>().Identifier, Is.EqualTo("user.active"));
         }
 
         [Test]
@@ -134,6 +170,33 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(forClause.Identifier, Is.EqualTo("for"));
             Assert.That(clauseArgs[0].As<IdNode>().Identifier, Is.EqualTo("x"));
             Assert.That(clauseArgs[1].As<FuncCallExprNode>().Identifier, Is.EqualTo("range"));
+        }
+
+        [Test]
+        public void DictComprehensionFollowedByFStringBuildsBothDeclarations()
+        {
+            var source =
+                "squares = {x: x ** 2 for x in range(1, 6)}\n" +
+                "message = f\"count={len(squares)}\"\n";
+            var nodes = this.builder.BuildFromSource(source).As<SourceNode>().Children.ToArray();
+
+            Assert.That(nodes.Length, Is.EqualTo(2));
+
+            var squaresDecl = nodes[0].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var squaresCall = squaresDecl.Initializer!.As<FuncCallExprNode>();
+            Assert.That(squaresDecl.Identifier, Is.EqualTo("squares"));
+            Assert.That(squaresCall.Identifier, Is.EqualTo("dict"));
+
+            var messageDecl = nodes[1].As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var formatCall = messageDecl.Initializer!.As<FuncCallExprNode>();
+            ExprNode[] parts = formatCall.Arguments!.Expressions.ToArray();
+
+            Assert.That(messageDecl.Identifier, Is.EqualTo("message"));
+            Assert.That(formatCall.Identifier, Is.EqualTo("format"));
+            Assert.That(parts[0].As<LitExprNode>().Value, Is.EqualTo("count="));
+            Assert.That(parts[1].As<FuncCallExprNode>().Identifier, Is.EqualTo("len"));
+            Assert.That(parts[1].As<FuncCallExprNode>().Arguments!.Expressions.Single().As<IdNode>().Identifier,
+                Is.EqualTo("squares"));
         }
 
         [Test]
@@ -198,6 +261,51 @@ namespace LINVAST.Tests.Imperative.Builders.Python
 
             Assert.That(call.Identifier, Is.EqualTo("format"));
             Assert.That(call.Arguments!.Expressions.Single().As<IdNode>().Identifier, Is.EqualTo("x"));
+        }
+
+        [Test]
+        public void LeadingNewlineFStringStatementBuildsFormatCall()
+        {
+            var stat = this.ParseStatement("\nf\"123\"\n").As<ExprStatNode>();
+            var call = stat.Expression.As<FuncCallExprNode>();
+
+            Assert.That(call.Line, Is.EqualTo(2));
+            Assert.That(call.Identifier, Is.EqualTo("format"));
+            Assert.That(call.Arguments!.Expressions.Single().As<LitExprNode>().Value, Is.EqualTo("123"));
+        }
+
+        [Test]
+        public void FStringAssignmentWithFunctionCallFieldBuildsFormatCall()
+        {
+            var stat = this.ParseStatement("message = f\"count={len(squares)}\"\n");
+            var decl = stat.As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var call = decl.Initializer!.As<FuncCallExprNode>();
+            ExprNode[] parts = call.Arguments!.Expressions.ToArray();
+
+            Assert.That(decl.Identifier, Is.EqualTo("message"));
+            Assert.That(call.Identifier, Is.EqualTo("format"));
+            Assert.That(parts[0].As<LitExprNode>().Value, Is.EqualTo("count="));
+            Assert.That(parts[1].As<FuncCallExprNode>().Identifier, Is.EqualTo("len"));
+            Assert.That(parts[1].As<FuncCallExprNode>().Arguments!.Expressions.Single().As<IdNode>().Identifier,
+                Is.EqualTo("squares"));
+        }
+
+        [Test]
+        public void MultilineFStringBuildsFormatCall()
+        {
+            var stat = this.ParseStatement(
+                "message = f\"\"\"count={len(squares)}\n" +
+                "active={active_count}\"\"\"\n");
+            var decl = stat.As<DeclStatNode>().DeclaratorList.Declarators.Single().As<VarDeclNode>();
+            var call = decl.Initializer!.As<FuncCallExprNode>();
+            ExprNode[] parts = call.Arguments!.Expressions.ToArray();
+
+            Assert.That(decl.Identifier, Is.EqualTo("message"));
+            Assert.That(call.Identifier, Is.EqualTo("format"));
+            Assert.That(parts[0].As<LitExprNode>().Value, Is.EqualTo("count="));
+            Assert.That(parts[1].As<FuncCallExprNode>().Identifier, Is.EqualTo("len"));
+            Assert.That(parts[2].As<LitExprNode>().Value, Is.EqualTo("\nactive="));
+            Assert.That(parts[3].As<IdNode>().Identifier, Is.EqualTo("active_count"));
         }
 
         [Test]
