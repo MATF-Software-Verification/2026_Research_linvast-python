@@ -163,7 +163,8 @@ namespace LINVAST.Tests.Imperative.Builders.Python
 
             var entry = args[0].As<DictEntryNode>();
             Assert.That(entry.Key.Identifier, Is.EqualTo("x"));
-            Assert.That(entry.Value, Is.TypeOf<ArithmExprNode>());
+            var powCall = entry.Value.As<FuncCallExprNode>();
+            Assert.That(powCall.Identifier, Is.EqualTo("pow"));
 
             var forClause = args[1].As<FuncCallExprNode>();
             ExprNode[] clauseArgs = forClause.Arguments!.Expressions.ToArray();
@@ -467,6 +468,28 @@ namespace LINVAST.Tests.Imperative.Builders.Python
             Assert.That(field.Identifier, Is.EqualTo("format_field"));
             Assert.That(args[0].As<LitExprNode>().Value, Is.EqualTo("a:b"));
             Assert.That(args[2].As<LitExprNode>().Value, Is.EqualTo(">10"));
+        }
+
+        [Test]
+        public void PowerOperatorBuildsPowCall()
+        {
+            var call = this.ParseExpression("x ** 2").As<FuncCallExprNode>();
+            ExprNode[] args = call.Arguments!.Expressions.ToArray();
+
+            Assert.That(call.Identifier, Is.EqualTo("pow"));
+            Assert.That(args[0].As<IdNode>().Identifier, Is.EqualTo("x"));
+            Assert.That(args[1].As<LitExprNode>().Value, Is.EqualTo(2L));
+        }
+
+        [Test]
+        public void FloorDivisionBuildsFloorOfDivision()
+        {
+            var call = this.ParseExpression("a // b").As<FuncCallExprNode>();
+            Assert.That(call.Identifier, Is.EqualTo("floor"));
+
+            var div = call.Arguments!.Expressions.Single().As<ArithmExprNode>();
+            Assert.That(div.LeftOperand.As<IdNode>().Identifier, Is.EqualTo("a"));
+            Assert.That(div.RightOperand.As<IdNode>().Identifier, Is.EqualTo("b"));
         }
 
         private ExprNode ParseExpression(string source)
