@@ -700,7 +700,7 @@ namespace LINVAST.Imperative.Builders.Python
         {
             int line = ctx.Start.Line;
             if (ctx.POWER() is not null)
-                return new ArithmExprNode(line, lhs, CreatePowerOp(line), rhs);
+                return new FuncCallExprNode(line, new IdNode(line, "pow"), new ExprListNode(line, new[] { lhs, rhs }));
             if (ctx.STAR() is not null)
                 return new ArithmExprNode(line, lhs, ArithmOpNode.FromSymbol(line, "*"), rhs);
             if (ctx.AT() is not null)
@@ -709,8 +709,10 @@ namespace LINVAST.Imperative.Builders.Python
                 return new ArithmExprNode(line, lhs, ArithmOpNode.FromSymbol(line, "/"), rhs);
             if (ctx.MOD() is not null)
                 return new ArithmExprNode(line, lhs, ArithmOpNode.FromSymbol(line, "%"), rhs);
-            if (ctx.IDIV() is not null)
-                return new ArithmExprNode(line, lhs, CreateFloorDivOp(line), rhs);
+            if (ctx.IDIV() is not null) {
+                var divExpr = new ArithmExprNode(line, lhs, ArithmOpNode.FromSymbol(line, "/"), rhs);
+                return new FuncCallExprNode(line, new IdNode(line, "floor"), new ExprListNode(line, new[] { (ExprNode)divExpr }));
+            }
             if (ctx.ADD() is not null)
                 return new ArithmExprNode(line, lhs, ArithmOpNode.FromSymbol(line, "+"), rhs);
             if (ctx.MINUS() is not null)
@@ -729,11 +731,6 @@ namespace LINVAST.Imperative.Builders.Python
             throw new SyntaxErrorException("Unsupported binary expression", line, ctx.Start.Column);
         }
 
-        private static ArithmOpNode CreatePowerOp(int line) =>
-            new(line, "**", (x, y) => Math.Pow(Convert.ToDouble(x), Convert.ToDouble(y)));
-
-        private static ArithmOpNode CreateFloorDivOp(int line) =>
-            new(line, "//", (x, y) => Math.Floor(Convert.ToDouble(x) / Convert.ToDouble(y)));
 
         private RelOpNode CreateRelOp(int line, Python3Parser.Comp_opContext ctx)
         {
